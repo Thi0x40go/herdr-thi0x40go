@@ -1004,7 +1004,7 @@ export default class AgentSleep extends View {
       .when(!status && since > 0, (el) => el.child(div().flex_none().text_size(11).text_color(t.dim).child(duration(now - since))))
       .child(unseen
         ? div().size(7).mx(3).flex_none().rounded(4).bg(t.done)
-        : svg("icons/moon.svg").size(11).flex_none().text_color(t.dim));
+        : svg("mods/agent-sleep/icons/moon.svg").size(11).flex_none().text_color(t.dim));
   }
 
   render(cx) {
@@ -1036,7 +1036,7 @@ export default class AgentSleep extends View {
           .font_medium()
           .child(h_flex().id("sleep-fold").gap(4).items_center().cursor_pointer().text_color(t.dim).hover((s) => s.text_color(t.foreground))
             .on_click((_e, cx) => { this.folded = !this.folded; cx.notify(); })
-            .child(svg("icons/zzz.svg").size(12).text_color(t.dim))
+            .child(svg("mods/agent-sleep/icons/zzz.svg").size(12).flex_none().text_color(t.dim))
             .child(div().child("Sleeping")))
           .child(div().text_color(t.dim).child(String(list.length)))
           .child(div().flex_1())
@@ -1044,19 +1044,19 @@ export default class AgentSleep extends View {
             .hover((s) => s.bg(t.hover).text_color(t.foreground))
             .tooltip("Put focused agent to sleep now (frees RAM)")
             .on_click((_e, cx) => this.sleepFocused(cx))
-            .child(svg("icons/moon.svg").size(11).text_color(t.dim))
+            .child(svg("mods/agent-sleep/icons/moon.svg").size(11).flex_none().text_color(t.dim))
             .child(div().child("sleep")))
           .child(h_flex().id("sleep-sort").px(5).py(1).rounded(4).gap(3).items_center().cursor_pointer().text_color(t.dim)
             .hover((s) => s.bg(t.hover).text_color(t.foreground))
             .tooltip(SORT_TIP[sort])
             .on_click(() => this.cycleSort())
-            .child(svg("icons/sort.svg").size(11).text_color(t.dim))
+            .child(svg("mods/agent-sleep/icons/sort.svg").size(11).flex_none().text_color(t.dim))
             .child(div().child(SORT_LABEL[sort])))
           .child(h_flex().id("sleep-delay").px(5).py(1).rounded(4).gap(3).items_center().cursor_pointer().text_color(t.dim)
             .hover((s) => s.bg(t.hover).text_color(t.foreground))
             .tooltip("Sleep idle agents after… (click to change)")
             .on_click(() => this.cycleDelay())
-            .child(svg("icons/timer.svg").size(11).text_color(t.dim))
+            .child(svg("mods/agent-sleep/icons/timer.svg").size(11).flex_none().text_color(t.dim))
             .child(div().child(d > 0 ? `${d}m` : "off"))),
       )
       .when(!this.folded, (el) => el.child(
