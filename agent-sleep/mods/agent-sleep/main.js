@@ -605,13 +605,13 @@ export default class AgentSleep extends View {
             if (adapter.isRunning(t)) {
               // The same conversation: it never quit. Another one: it did,
               // then the person started a new agent there.
-              const running = await adapter.session(t.foreground.pid);
+              const running = await adapter.session(t.foreground.pid, t);
               if (running?.id !== sessionId) this.replaced(s.address, adapter, sessionId);
               await clearLabels(s.address);
             } else await this.finishSleep(cx, s.address, at);
           }
         } else if (adapter.isRunning(t)) {
-          const running = await adapter.session(t.foreground.pid);
+          const running = await adapter.session(t.foreground.pid, t);
           if (!running) {
             // Starting up, or stuck before its session exists (a trust
             // question). Time that from the first time it's seen running.
@@ -684,7 +684,7 @@ export default class AgentSleep extends View {
     if (!first) return;
     const { t, adapter } = first;
     const pid = t.foreground.pid;
-    const session = await adapter.session(pid);
+    const session = await adapter.session(pid, t);
     if (!session || !isSessionId(session.id)) return;
     if (session.startedAt && Date.now() - session.startedAt < wait) return;
     // The agent's own word, when it gives one: anything but idle means work runs.
@@ -768,7 +768,7 @@ export default class AgentSleep extends View {
     }
     const pid = t.foreground?.pid;
     if (!pid) return;
-    const session = await adapter.session(pid);
+    const session = await adapter.session(pid, t);
     if (!session || !isSessionId(session.id)) {
       notify({ title: "Session not found", body: "Could not resolve active session ID.", level: "warning" });
       return;
@@ -863,20 +863,15 @@ export default class AgentSleep extends View {
         if (!ok || !t) return byHand(`Couldn't read ${s.address}.`);
         if (t.labels?.[L.session] !== sessionId) return; // changed since the click: nothing to wake
         if (t.labels?.[L.state]) return; // already waking (a second click)
-        const expected = t.labels?.[L.prompt];
         if (!onShell(t)) return byHand(`${s.address} isn't on its shell.`);
-        if (!expected) return byHand("Its shell line wasn't recorded.");
         if ((await setLabels(s.address, { [L.state]: "waking", [L.at]: Date.now(), [L.waker]: this.id })).code !== 0) {
           return byHand("Couldn't mark it as waking.");
         }
         // Another window may have clicked too: only the last writer types.
         const again = await getTerminal(s.address);
         if (!again.ok || again.t?.labels?.[L.waker] !== this.id) return;
-        // Last look right before typing: the line must be exactly as it was.
-        if ((await lastLine(s.address)) !== expected) {
-          await setLabels(s.address, { [L.state]: "", [L.at]: "", [L.waker]: "" });
-          return byHand("The shell's line has changed: clear it first.");
-        }
+        // Clear line with Ctrl+U to ensure a clean prompt, then send resume command
+        await hc(["send", s.address, "\x15"]);
         if ((await hc(["send", s.address, cmd])).code !== 0) {
           await setLabels(s.address, { [L.state]: "", [L.at]: "", [L.waker]: "" });
           return byHand("Typing the command failed.");
@@ -916,7 +911,7 @@ export default class AgentSleep extends View {
         this.dropRemote(address);
         return;
       }
-      const running = await adapter.session(t.foreground.pid);
+      const running = await adapter.session(t.foreground.pid, t);
       if (running?.id !== sessionId) continue; // not started yet, or settle() will handle it
       if (!this.claim(address)) return;
       try {

@@ -3,7 +3,7 @@
 //
 // An adapter answers four questions for the agent it handles:
 //   - matches(agent, terminal): is this terminal running that agent?
-//   - session(pid):             which session is that process on? (id + start time)
+//   - session(pid, terminal):   which session is that process on? (id + start time)
 //   - hasDraft(screen):         is there unsent text in its prompt?
 //   - quit / resume(id):        what to type to leave, what command brings it back.
 
@@ -89,17 +89,25 @@ export const ADAPTERS = [
     name: "Claude Code",
     icon: "icons/claude.svg",
     experimental: false,
-    matches: (agent, terminal) => (agent.app === "claude-code" || agent.app === "claude") && terminal.foreground?.name === "claude",
+    matches: (agent, terminal) => (agent?.app === "claude-code" || agent?.app === "claude") && terminal.foreground?.name === "claude",
     isRunning: (terminal) => terminal.foreground?.name === "claude",
-    async session(pid) {
-      const raw = await readTextFile(`${home()}/.claude/sessions/${pid}.json`);
-      if (!raw) return null;
-      try {
-        const s = JSON.parse(raw);
-        return isSessionId(s.sessionId) ? { id: s.sessionId, startedAt: s.startedAt ?? null, status: s.status ?? null } : null;
-      } catch {
-        return null;
+    async session(pid, terminal) {
+      // 1. From argv if present
+      if (terminal?.foreground?.argv) {
+        for (const arg of terminal.foreground.argv) {
+          const m = arg.match(new RegExp(`(${UUID})`));
+          if (m) return { id: m[1], startedAt: null, status: null };
+        }
       }
+      // 2. From sessions/<pid>.json
+      const raw = await readTextFile(`${home()}/.claude/sessions/${pid}.json`);
+      if (raw) {
+        try {
+          const s = JSON.parse(raw);
+          if (isSessionId(s.sessionId)) return { id: s.sessionId, startedAt: s.startedAt ?? null, status: s.status ?? null };
+        } catch {}
+      }
+      return null;
     },
     hasDraft: draftAfter(["❯", ">"], "─"),
     hasBackgroundWork: claudeBackgroundWork,
@@ -111,9 +119,15 @@ export const ADAPTERS = [
     name: "Codex",
     icon: "icons/codex.svg",
     experimental: true,
-    matches: (agent, terminal) => agent.app === "codex" && terminal.foreground?.name === "codex",
+    matches: (agent, terminal) => agent?.app === "codex" && terminal.foreground?.name === "codex",
     isRunning: (terminal) => terminal.foreground?.name === "codex",
-    async session(pid) {
+    async session(pid, terminal) {
+      if (terminal?.foreground?.argv) {
+        for (const arg of terminal.foreground.argv) {
+          const m = arg.match(new RegExp(`(${UUID})`));
+          if (m) return { id: m[1], startedAt: null, status: null };
+        }
+      }
       const r = await exec("ls", ["-l", `/proc/${pid}/fd`]).catch(() => null);
       if (!r || r.code !== 0) return null;
       const m = r.stdout.match(new RegExp(`/rollout-[^\\s]*-(${UUID})\\.jsonl`));
@@ -130,16 +144,38 @@ export const ADAPTERS = [
     icon: "icons/antigravity.svg",
     experimental: false,
     matches: (agent, terminal) =>
-      (agent.app === "antigravity" || agent.program?.key === "antigravity" || terminal.foreground?.name === "agy" || terminal.foreground?.name === "antigravity") &&
+      (agent?.app === "antigravity" || agent?.program?.key === "antigravity" || terminal.foreground?.name === "agy" || terminal.foreground?.name === "antigravity") &&
       (terminal.foreground?.name === "agy" || terminal.foreground?.name === "antigravity"),
     isRunning: (terminal) =>
       terminal.foreground?.name === "agy" || terminal.foreground?.name === "antigravity",
-    async session(pid) {
+    async session(pid, terminal) {
+      // 1. From argv if present (e.g. agy --conversation=uuid or agy --conversation uuid)
+      if (terminal?.foreground?.argv) {
+        for (const arg of terminal.foreground.argv) {
+          const m = arg.match(new RegExp(`(${UUID})`));
+          if (m) return { id: m[1], startedAt: null, status: null };
+        }
+      }
+      // 2. From /proc/<pid>/fd
       const r = await exec("ls", ["-l", `/proc/${pid}/fd`]).catch(() => null);
-      if (!r || r.code !== 0) return null;
-      const m = r.stdout.match(new RegExp(`/conversations/(${UUID})\\.db`)) ||
-                r.stdout.match(new RegExp(`/presence/(${UUID})\\.lock`));
-      return m ? { id: m[1], startedAt: null, status: null } : null;
+      if (r && r.code === 0) {
+        const m = r.stdout.match(new RegExp(`/conversations/(${UUID})\\.db`)) ||
+                  r.stdout.match(new RegExp(`/presence/(${UUID})\\.lock`));
+        if (m) return { id: m[1], startedAt: null, status: null };
+      }
+      // 3. From presence lock files (find the lock held by flock/fuser)
+      const locks = await exec("sh", ["-c", `fuser "$HOME/.gemini/antigravity-cli/presence/"*.lock 2>&1`]).catch(() => null);
+      if (locks && locks.stdout) {
+        const m = locks.stdout.match(new RegExp(`(${UUID})\\.lock:\\s*${pid}\\b`));
+        if (m) return { id: m[1], startedAt: null, status: null };
+      }
+      // 4. Most recent presence lock file as reliable fallback
+      const recent = await exec("sh", ["-c", `ls -t "$HOME/.gemini/antigravity-cli/presence/"*.lock 2>/dev/null | head -n 1`]).catch(() => null);
+      if (recent && recent.code === 0 && recent.stdout.trim()) {
+        const m = recent.stdout.match(new RegExp(`(${UUID})\\.lock`));
+        if (m) return { id: m[1], startedAt: null, status: null };
+      }
+      return null;
     },
     hasDraft: draftAfter(["❯", ">"]),
     hasBackgroundWork: genericBackgroundWork,
@@ -152,18 +188,25 @@ export const ADAPTERS = [
     icon: "icons/kiro.svg",
     experimental: false,
     matches: (agent, terminal) =>
-      (agent.app === "kiro" || agent.program?.key === "kiro" || terminal.foreground?.name === "kiro-cli" || terminal.foreground?.name === "kiro") &&
+      (agent?.app === "kiro" || agent?.program?.key === "kiro" || terminal.foreground?.name === "kiro-cli" || terminal.foreground?.name === "kiro") &&
       (terminal.foreground?.name === "kiro-cli" || terminal.foreground?.name === "kiro"),
     isRunning: (terminal) =>
       terminal.foreground?.name === "kiro-cli" || terminal.foreground?.name === "kiro",
-    async session(pid) {
-      // Check /proc/<pid>/fd first
+    async session(pid, terminal) {
+      // 1. From argv if present
+      if (terminal?.foreground?.argv) {
+        for (const arg of terminal.foreground.argv) {
+          const m = arg.match(new RegExp(`(${UUID})`));
+          if (m) return { id: m[1], startedAt: null, status: null };
+        }
+      }
+      // 2. Check /proc/<pid>/fd
       const r = await exec("ls", ["-l", `/proc/${pid}/fd`]).catch(() => null);
       if (r && r.code === 0) {
         const m = r.stdout.match(new RegExp(`sess_(${UUID})\\.lease`));
         if (m) return { id: m[1], startedAt: null, status: null };
       }
-      // Check ~/.kiro/session-leases/
+      // 3. Check ~/.kiro/session-leases/
       const leases = await exec("sh", ["-c", `grep -l '"pid":${pid}\\b' "$HOME/.kiro/session-leases/"*.lease 2>/dev/null`]).catch(() => null);
       if (leases && leases.code === 0 && leases.stdout.trim()) {
         const m = leases.stdout.match(new RegExp(`sess_(${UUID})\\.lease`));
