@@ -1,0 +1,12 @@
+{
+  "place": "none",
+  "title": "Orchestrator Worktrees",
+  "focusable": true,
+  "overlay": {
+    "kind": "popup",
+    "at": "top",
+    "offset": 30,
+    "width": 880,
+    "height": 0.88
+  }
+}
