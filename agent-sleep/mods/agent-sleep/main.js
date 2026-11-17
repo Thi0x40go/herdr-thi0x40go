@@ -870,8 +870,8 @@ export default class AgentSleep extends View {
         // Another window may have clicked too: only the last writer types.
         const again = await getTerminal(s.address);
         if (!again.ok || again.t?.labels?.[L.waker] !== this.id) return;
-        // Clear line with Ctrl+U to ensure a clean prompt, then send resume command
-        await hc(["send", s.address, "\x15"]);
+        // Clear line with Ctrl+U key to ensure a clean prompt, then send resume command
+        await hc(["keys", s.address, "ctrl+u"]);
         if ((await hc(["send", s.address, cmd])).code !== 0) {
           await setLabels(s.address, { [L.state]: "", [L.at]: "", [L.waker]: "" });
           return byHand("Typing the command failed.");
