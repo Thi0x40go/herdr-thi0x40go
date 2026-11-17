@@ -7,8 +7,9 @@ export default class Hibernate extends View {
   init(_props, cx) {
     this.refreshState(cx);
 
-    // Auto-revive kept terminals on startup after 1s
-    cx.timer.after(1000, cx => this.autoRevive(cx));
+    // Auto-revive kept terminals on startup (initial check and follow-up once shells settle)
+    cx.timer.after(1500, cx => this.autoRevive(cx));
+    cx.timer.after(4500, cx => this.autoRevive(cx));
 
     // Periodically sync sleeping state every 10s
     cx.timer.every(10000, cx => this.refreshState(cx));

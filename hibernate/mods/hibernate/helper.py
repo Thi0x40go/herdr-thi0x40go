@@ -304,6 +304,8 @@ def cmd_auto_revive():
                     m = re.search(r"--resume-id\s+([^\s]+)", labels["kiro.cmd"])
                     if m:
                         sess_id = m.group(1)
+                if not sess_id:
+                    sess_id = find_kiro_session(None, cwd, None)
 
                 agent_mode = ""
                 if "kiro.cmd" in labels:
@@ -319,7 +321,9 @@ def cmd_auto_revive():
                 full_cmd = f"cd {shlex.quote(cwd)} && {resume_cmd}"
 
                 try:
-                    subprocess.run(["hc", "send", addr, full_cmd], check=True)
+                    # Clean line from any stray draft or incomplete typing
+                    subprocess.run(["hc", "keys", addr, "ctrl+u"], check=False)
+                    subprocess.run(["hc", "send", "--force", addr, full_cmd], check=True)
                     if sess_id:
                         subprocess.run(["hc", "label", addr, "kiro.active=1", f"kiro.session={sess_id}", f"kiro.cwd={cwd}"], check=False)
                     revived.append({"address": addr, "agent": "kiro", "cmd": full_cmd})
@@ -329,10 +333,17 @@ def cmd_auto_revive():
             # Check if it was previously running antigravity
             elif labels.get("agent-sleep.agent") == "antigravity" or "antigravity" in str(labels):
                 conv_id = labels.get("agent-sleep") or labels.get("antigravity.session")
+                if not conv_id:
+                    locks = glob.glob(str(HOME / ".gemini" / "antigravity-cli" / "presence" / "*.lock"))
+                    if locks:
+                        locks.sort(key=os.path.getmtime, reverse=True)
+                        conv_id = Path(locks[0]).stem
+
                 if conv_id:
                     full_cmd = f"cd {shlex.quote(cwd)} && agy --conversation {conv_id}"
                     try:
-                        subprocess.run(["hc", "send", addr, full_cmd], check=True)
+                        subprocess.run(["hc", "keys", addr, "ctrl+u"], check=False)
+                        subprocess.run(["hc", "send", "--force", addr, full_cmd], check=True)
                         revived.append({"address": addr, "agent": "antigravity", "cmd": full_cmd})
                     except Exception:
                         pass
