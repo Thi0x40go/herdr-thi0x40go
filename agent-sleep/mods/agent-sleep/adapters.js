@@ -10,15 +10,32 @@
 import { exec, home, readTextFile } from "herdr";
 
 const UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
-const UUID_RE = new RegExp(`^${UUID}$`);
+const SESSION_ID = "(?:sess_)?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
+const SESSION_ID_RE = new RegExp(`^${SESSION_ID}$`, "i");
 // Session ids end up in a command typed into a shell: only well-formed ones pass.
-export const isSessionId = (id) => typeof id === "string" && UUID_RE.test(id);
+export const isSessionId = (id) => typeof id === "string" && SESSION_ID_RE.test(id);
 
-// Measure resident memory (RAM) consumed by a process via /proc/<pid>/statm
+// Measure resident memory (RAM) consumed by a process and its children via /proc/<pid>/statm
 export async function getProcessMemory(pid) {
   try {
-    const r = await exec("awk", ["{printf \"%d MB\", $2 * 4096 / 1024 / 1024}", `/proc/${pid}/statm`]);
-    if (r && r.code === 0 && r.stdout.trim()) {
+    const r = await exec("sh", ["-c", `
+      pids="${pid}"
+      for c in $(pgrep -P ${pid} 2>/dev/null); do
+        pids="$pids $c"
+        for g in $(pgrep -P $c 2>/dev/null); do
+          pids="$pids $g"
+        done
+      done
+      pages=0
+      for p in $pids; do
+        if [ -f "/proc/$p/statm" ]; then
+          m=$(awk '{print $2}' "/proc/$p/statm" 2>/dev/null)
+          pages=$((pages + \${m:-0}))
+        fi
+      done
+      echo "$((pages * 4096 / 1024 / 1024)) MB"
+    `]);
+    if (r && r.code === 0 && r.stdout.trim() && !r.stdout.includes("0 MB")) {
       return r.stdout.trim();
     }
   } catch {}
@@ -193,31 +210,65 @@ export const ADAPTERS = [
     isRunning: (terminal) =>
       terminal.foreground?.name === "kiro-cli" || terminal.foreground?.name === "kiro",
     async session(pid, terminal) {
-      // 1. From argv if present
+      // 1. From argv if present (e.g. kiro-cli ... --resume-id sess_... or ... <id>)
       if (terminal?.foreground?.argv) {
         for (const arg of terminal.foreground.argv) {
-          const m = arg.match(new RegExp(`(${UUID})`));
-          if (m) return { id: m[1], startedAt: null, status: null };
+          const m = arg.match(new RegExp(`(${SESSION_ID})`, "i"));
+          if (m && isSessionId(m[1])) return { id: m[1], startedAt: null, status: null };
         }
       }
-      // 2. Check /proc/<pid>/fd
-      const r = await exec("ls", ["-l", `/proc/${pid}/fd`]).catch(() => null);
-      if (r && r.code === 0) {
-        const m = r.stdout.match(new RegExp(`sess_(${UUID})\\.lease`));
-        if (m) return { id: m[1], startedAt: null, status: null };
+
+      // 2. Resolve via process tree (kiro-cli -> bun -> node) and ~/.kiro/session-leases/
+      const leaseRes = await exec("sh", ["-c", `
+        pids="${pid}"
+        for c in $(pgrep -P ${pid} 2>/dev/null); do
+          pids="$pids $c"
+          for g in $(pgrep -P $c 2>/dev/null); do
+            pids="$pids $g"
+          done
+        done
+        for f in "$HOME/.kiro/session-leases/"*.lease; do
+          [ -f "$f" ] || continue
+          for p in $pids; do
+            if grep -q "\"pid\":$p\\b\\|\"parentPid\":$p\\b" "$f" 2>/dev/null; then
+              basename "$f" .lease
+              exit 0
+            fi
+          done
+        done
+      `]).catch(() => null);
+
+      if (leaseRes && leaseRes.code === 0 && leaseRes.stdout.trim()) {
+        const id = leaseRes.stdout.trim();
+        if (isSessionId(id)) return { id, startedAt: null, status: null };
       }
-      // 3. Check ~/.kiro/session-leases/
-      const leases = await exec("sh", ["-c", `grep -l '"pid":${pid}\\b' "$HOME/.kiro/session-leases/"*.lease 2>/dev/null`]).catch(() => null);
-      if (leases && leases.code === 0 && leases.stdout.trim()) {
-        const m = leases.stdout.match(new RegExp(`sess_(${UUID})\\.lease`));
-        if (m) return { id: m[1], startedAt: null, status: null };
+
+      // 3. Check open file descriptors of pid and its children
+      const fdRes = await exec("sh", ["-c", `
+        pids="${pid} $(pgrep -P ${pid} 2>/dev/null)"
+        for p in $pids; do
+          ls -l /proc/$p/fd 2>/dev/null | grep -oE '(sess_)?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' && exit 0
+        done
+      `]).catch(() => null);
+
+      if (fdRes && fdRes.code === 0 && fdRes.stdout.trim()) {
+        const id = fdRes.stdout.trim().split("\n")[0].trim();
+        if (isSessionId(id)) return { id, startedAt: null, status: null };
       }
+
+      // 4. Fallback: most recently modified lease file
+      const recent = await exec("sh", ["-c", `ls -t "$HOME/.kiro/session-leases/"*.lease 2>/dev/null | head -n 1`]).catch(() => null);
+      if (recent && recent.code === 0 && recent.stdout.trim()) {
+        const m = recent.stdout.match(new RegExp(`(${SESSION_ID})\\.lease`, "i"));
+        if (m && isSessionId(m[1])) return { id: m[1], startedAt: null, status: null };
+      }
+
       return null;
     },
     hasDraft: draftAfter([">", "›", "❯"]),
     hasBackgroundWork: genericBackgroundWork,
     quit: "/quit",
-    resume: (id) => `kiro-cli --resume-id ${id}`,
+    resume: (id) => `kiro-cli --v3 --resume-id ${id}`,
   },
 ];
 
