@@ -33,6 +33,14 @@ Terminal hibernation and auto-revive system for coding agents on Herdr restart o
   - Space and pane sleep/wake toggle commands.
   - Dual-phase startup timer (1.5s & 4.5s) to guarantee delayed Zsh/Starship prompts are revived cleanly.
 
+### ✅ [todos](todos/)
+Project task management panel and CLI integration for Herdr and AI agents.
+- **CLI Command:** `todo` (`todo add`, `todo done`, `todo rm`, `todo log on/off`)
+- **Key Features:**
+  - Automatic per-project to-do list tracking based on the current Git repository.
+  - User and AI agent synchronization with live UI updates in Herdr.
+  - Request logging for coding assistants.
+
 ---
 
 ## 🚀 Installation
@@ -50,16 +58,28 @@ Terminal hibernation and auto-revive system for coding agents on Herdr restart o
    ln -snf ~/Projects/herdr-thi0x40go/agent-sleep/mods/agent-sleep ~/.config/herdr-app/mods/agent-sleep
    ln -snf ~/Projects/herdr-thi0x40go/orchestrator-wt/mods/orchestrator-wt ~/.config/herdr-app/mods/orchestrator-wt
    ln -snf ~/Projects/herdr-thi0x40go/hibernate/mods/hibernate ~/.config/herdr-app/mods/hibernate
+   ln -snf ~/Projects/herdr-thi0x40go/todos/mods/over9k-todos ~/.config/herdr-app/mods/over9k-todos
    ```
 
-3. **Validate mod integrity:**
+3. **Install CLI wrapper for `todo`:**
+   ```bash
+   mkdir -p ~/.local/bin
+   cat << 'EOF' > ~/.local/bin/todo
+   #!/bin/sh
+   exec sh "$HOME/.config/herdr-app/mods/over9k-todos/todo.sh" "$@"
+   EOF
+   chmod +x ~/.local/bin/todo
+   ```
+
+4. **Validate mod integrity:**
    ```bash
    herdr-app check ~/.config/herdr-app/mods/agent-sleep
    herdr-app check ~/.config/herdr-app/mods/orchestrator-wt
    herdr-app check ~/.config/herdr-app/mods/hibernate
+   herdr-app check ~/.config/herdr-app/mods/over9k-todos
    ```
 
-4. **Register Keybindings in `~/.config/herdr-app/keys.json`:**
+5. **Register Keybindings in `~/.config/herdr-app/keys.json`:**
    Add the following shortcuts inside your `keys.json`:
    ```json
    {
@@ -113,6 +133,20 @@ Add the keybinding to `~/.config/herdr-app/keys.json`:
 {
   "alt-z": "hibernate.sleep"
 }
+```
+
+#### 4. Installing `todos` only
+```bash
+ln -snf ~/Projects/herdr-thi0x40go/todos/mods/over9k-todos ~/.config/herdr-app/mods/over9k-todos
+herdr-app check ~/.config/herdr-app/mods/over9k-todos
+
+# Install CLI wrapper
+mkdir -p ~/.local/bin
+cat << 'EOF' > ~/.local/bin/todo
+#!/bin/sh
+exec sh "$HOME/.config/herdr-app/mods/over9k-todos/todo.sh" "$@"
+EOF
+chmod +x ~/.local/bin/todo
 ```
 
 ---
