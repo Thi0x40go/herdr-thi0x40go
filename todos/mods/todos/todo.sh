@@ -1,6 +1,6 @@
 #!/bin/sh
 # Per-project to-do lists, shared by people and agents (Over9k's To-do panel,
-# mods/over9k-todos, shows and edits the same files).
+# mods/todos, shows and edits the same files).
 #   todo                     this project's list, numbered
 #   todo all                 every project's
 #   todo add <text…>         add to this project's (--due "YYYY-MM-DD[ HH:MM]" first sets when)

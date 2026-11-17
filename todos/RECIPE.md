@@ -65,7 +65,7 @@ a 10px radius. Colours are theme names.
 
 ## Built from
 
-- **`mods/over9k-todos/`**, with `mod.json` set to `{"place": "right", "size": 368}`:
+- **`mods/todos/`**, with `mod.json` set to `{"place": "right", "size": 368}`:
   - `main.js`: the panel.
   - `agent-name.js`: the agent names the sidebar uses.
   - `todo.sh`: the `todo` command.

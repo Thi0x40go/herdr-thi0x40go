@@ -89,7 +89,7 @@ case "$cmd" in
     fi
     exit 0 ;;
   todo)
-    t="$mods/over9k-todos/todo.sh"
+    t="$mods/todos/todo.sh"
     [ -f "$t" ] || { echo "No $t" >&2; exit 2; }
     sh "$t" --rule "$on"
     # The `todo` command agents run: a small wrapper (only Over9k's own is ever
@@ -102,7 +102,7 @@ case "$cmd" in
           && printf '#!/bin/sh\n# over9k todo wrapper (Options > To-do)\nexec sh "%s" "$@"\n' "$t" > "$w" && chmod +x "$w"
       fi
     elif ours; then rm -f "$w"; fi
-    command -v jq >/dev/null 2>&1 && hook "$on" UserPromptSubmit over9k-todos/todo-hook.sh "sh \"$mods/over9k-todos/todo-hook.sh\""
+    command -v jq >/dev/null 2>&1 && hook "$on" UserPromptSubmit todos/todo-hook.sh "sh \"$mods/todos/todo-hook.sh\""
     exit 0 ;;
   default)
     k=$on v=${3:-}

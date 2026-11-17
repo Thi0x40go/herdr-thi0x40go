@@ -53,7 +53,7 @@ const XDG_DIR = 'printf %s "${XDG_DATA_HOME:+$XDG_DATA_HOME/over9k/todos}"';
 let dataDir = null;
 const DIR = () => dataDir ?? `${home()}/${DATA_DIR}`;
 // Crosses a to-do out of (or back into) a project's own TODO.md.
-const CROSS = () => `${appHome()}/mods/over9k-todos/todo-cross.py`;
+const CROSS = () => `${appHome()}/mods/todos/todo-cross.py`;
 // The project you're in when its space is on another computer: its list, its
 // TODO.md and its agents are that computer's (findHere sets it).
 const HERE = { folder: null, machine: null };
@@ -525,7 +525,7 @@ export default class Todos extends View {
   setUpAgents(cx) {
     const mods = `${appHome().replace(/\\/g, "/")}/mods`;
     cx.spawn(async (cx) => {
-      let r = await exec("sh", [`${mods}/over9k-todos/setup.sh`, "todo", "on", mods]).catch(() => null);
+      let r = await exec("sh", [`${mods}/todos/setup.sh`, "todo", "on", mods]).catch(() => null);
       if (r?.code === 127 || r == null || /No such file|can't open/i.test(r?.stderr ?? "")) r = await exec("sh", [`${mods}/over9k-options/setup.sh`, "todo", "on", mods]).catch(() => null);
       notify(r?.code === 0
         ? { title: "Agents can use the to-do lists", body: "New agents get the rule and the todo command (~/.local/bin).", level: "info" }
@@ -855,8 +855,8 @@ export default class Todos extends View {
         .on_click((_e, cx) => { fn(); this.unpick(); cx.notify(); })
         .child(div().text_color(color ?? (on ? t.foreground : t.muted)).child(label))
         .when(n != null, (el) => el.child(div().text_color(t.dim).child(String(n))))
-        .when(Boolean(o?.log), (el) => el.child(svg("mods/over9k-todos/log.svg").size(10).flex_none().text_color(t.dim)))
-        .when(Boolean(o?.sync), (el) => el.child(svg("mods/over9k-todos/sync.svg").size(10).flex_none().text_color(t.dim)));
+        .when(Boolean(o?.log), (el) => el.child(svg("mods/todos/log.svg").size(10).flex_none().text_color(t.dim)))
+        .when(Boolean(o?.sync), (el) => el.child(svg("mods/todos/sync.svg").size(10).flex_none().text_color(t.dim)));
     };
 
     // A to-do, as the sidebar's agent rows: its circle, the text on one line
@@ -892,7 +892,7 @@ export default class Todos extends View {
         .when((hovered || this.startFor === key) && !editing && !x.done && this.agentChoices.length > 0, (el) => el.child(div().id(`start-${key}`).size(20).flex_none().flex().items_center().justify_center().rounded(5).cursor_pointer()
           .when(this.startFor === key, (el) => el.bg(t.selected))
           .hover((s) => s.bg(t.raised)).on_click((_e, cx) => { this.pickOpen = false; this.startFor = this.startFor === key ? null : key; cx.notify(); })
-          .child(svg("mods/over9k-todos/bot.svg").size(12).text_color(t.muted))))
+          .child(svg("mods/todos/bot.svg").size(12).text_color(t.muted))))
         .when(hovered && !editing, (el) => el.child(div().id(`del-${key}`).size(20).flex_none().flex().items_center().justify_center().rounded(5).cursor_pointer()
           .hover((s) => s.bg(t.raised)).on_click((_e, cx) => { this.change(x.slug, (items) => items.filter((_, j) => j !== x.i), cx); toFile(x.folder, "rm", x.text); })
           .child(svg("mods/workspace-chrome/x.svg").size(11).text_color(t.muted))));
@@ -911,7 +911,7 @@ export default class Todos extends View {
     // agent (the one you were last in, else the latest one in that project), or
     // New agent, of the kind the pill shows (click it to pick; kept for next time).
     const icon = (a, size = 13) => (a?.icon ? (a.tint ? svg(a.icon).size(size).flex_none().text_color(t.foreground) : image(a.icon).w(size).h(size).flex_none())
-      : svg("mods/over9k-todos/bot.svg").size(size).flex_none().text_color(t.muted));
+      : svg("mods/todos/bot.svg").size(size).flex_none().text_color(t.muted));
     const option = (id, fn, kids) => h_flex().id(id).h(26).px(7).gap(7).items_center().rounded(5).cursor_pointer()
       .text_size(12).text_color(t.foreground).hover((s) => s.bg(t.hover))
       .on_click((_e, cx) => { fn(cx); cx.notify(); }).children(kids);
@@ -972,7 +972,7 @@ export default class Todos extends View {
             .child(act("pick-clear", null, "Cancel", () => this.unpick(), t.dim)))
           .child(h_flex().flex_wrap().justify_between().gap(2).items_center()
           .child(act("pick-tick", "mods/workspace-chrome/check.svg", allDone ? "Mark not done" : "Mark done", (cx) => this.tickPicked(cx), null, true))
-          .when(open.length > 0 && this.agentChoices.length > 0, (el) => el.child(act("pick-send", "mods/over9k-todos/bot.svg", "Send to agent", () => { this.pickOpen = false; this.startFor = this.startFor === "sel" ? null : "sel"; }, null, true)))
+          .when(open.length > 0 && this.agentChoices.length > 0, (el) => el.child(act("pick-send", "mods/todos/bot.svg", "Send to agent", () => { this.pickOpen = false; this.startFor = this.startFor === "sel" ? null : "sel"; }, null, true)))
           .child(act("pick-del", "mods/workspace-chrome/x.svg", this.delArmed ? `Delete ${picks.length}? Click again` : "Delete", (cx) => {
             if (this.delArmed) { this.delArmed = false; return this.deletePicked(cx); }
             this.delArmed = true; cx.spawn(async (cx) => { await cx.sleep(3000); this.delArmed = false; cx.notify(); });
@@ -1003,8 +1003,8 @@ export default class Todos extends View {
         // Log and Sync for the project you're in (whichever tab shows).
         .when(hereOk, (el) => {
           const l = this.lists[hereSlug] ?? { folder: this.here, opts: defOpts() }, o = l.opts, n = this.name(this.here);
-          return el.child(toggle("log", "Log", "mods/over9k-todos/log.svg", o.log, `Log (${n}): agents add what you ask for to its list${o.sync ? " and TODO.md" : ""}`, (cx) => this.setOpt(l.folder, "log", !o.log, cx)))
-            .child(toggle("link", "Sync", "mods/over9k-todos/sync.svg", o.sync, `Sync (${n}): its TODO.md follows the list`, (cx) => this.setOpt(l.folder, "sync", !o.sync, cx)));
+          return el.child(toggle("log", "Log", "mods/todos/log.svg", o.log, `Log (${n}): agents add what you ask for to its list${o.sync ? " and TODO.md" : ""}`, (cx) => this.setOpt(l.folder, "log", !o.log, cx)))
+            .child(toggle("link", "Sync", "mods/todos/sync.svg", o.sync, `Sync (${n}): its TODO.md follows the list`, (cx) => this.setOpt(l.folder, "sync", !o.sync, cx)));
         }))
       .child(h_flex().flex_wrap().min_h(30).gap(2).px(8).pt(5).items_center().text_size(11.5)
         // The project you're in first, then All.
@@ -1033,7 +1033,7 @@ export default class Todos extends View {
       .when(!this.ruleOk, (el) => el.child(h_flex().id("todo-setup").mx(8).mb(4).px(10).py(6).gap(8).items_center().rounded(8).cursor_pointer()
         .bg(t.accent + "1f").hover((s) => s.bg(t.accent + "33")).text_size(12).text_color(t.foreground)
         .on_click((_e, cx) => this.setUpAgents(cx))
-        .child(svg("mods/over9k-todos/bot.svg").size(13).flex_none().text_color(t.accent))
+        .child(svg("mods/todos/bot.svg").size(13).flex_none().text_color(t.accent))
         .child(div().flex_1().min_w(0).child("Let agents keep these lists"))
         .child(div().flex_none().text_size(11.5).text_color(t.accent).child("Set up"))))
       .child(v_flex().id("todo-scroll").flex_1().min_h(0).overflow_y_scrollbar().px(8).pb(8)
@@ -1054,7 +1054,7 @@ export default class Todos extends View {
             .when((this.hover === `file:${i}` || this.startFor === `file:${i}`) && this.agentChoices.length > 0, (el) => el.child(div().id(`fstart-${i}`).size(18).flex_none().flex().items_center().justify_center().rounded(4).cursor_pointer()
               .when(this.startFor === `file:${i}`, (el) => el.bg(t.selected))
               .hover((x) => x.bg(t.raised)).on_click((_e, cx) => { this.pickOpen = false; this.startFor = this.startFor === `file:${i}` ? null : `file:${i}`; cx.notify(); })
-              .child(svg("mods/over9k-todos/bot.svg").size(12).text_color(t.muted))))
+              .child(svg("mods/todos/bot.svg").size(12).text_color(t.muted))))
             .when(this.hover === `file:${i}`, (el) => el.child(div().id(`skip-${i}`).size(18).flex_none().flex().items_center().justify_center().rounded(4).cursor_pointer()
               .hover((x) => x.bg(t.raised)).tooltip(`Delete from ${fromFile.file ?? "TODO.md"}`).on_click((_e, cx) => this.dropFromFile(focusFolder, text, cx))
               .child(svg("mods/workspace-chrome/x.svg").size(11).text_color(t.muted)))),

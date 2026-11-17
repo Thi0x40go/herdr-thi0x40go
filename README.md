@@ -41,6 +41,14 @@ Project task management panel and CLI integration for Herdr and AI agents.
   - User and AI agent synchronization with live UI updates in Herdr.
   - Request logging for coding assistants.
 
+### 🌐 [terminal-browser](terminal-browser/)
+Interactive terminal-based browser integration for Herdr, running side-by-side with your active agents.
+- **Keybinding:** `alt-b` (`terminal-browser.toggle` / `terminal-browser.open`)
+- **Key Features:**
+  - Opens `terminal-browser` directly in a split pane (`place: "right"`) alongside your terminal or agent workspace.
+  - Quick toggle shortcut to open/focus or close the terminal browser pane.
+  - Allows autonomous agents or developers to visualize web pages, inspect HTML previews, and drive web navigation.
+
 ---
 
 ## 🚀 Installation
@@ -58,7 +66,8 @@ Project task management panel and CLI integration for Herdr and AI agents.
    ln -snf ~/Projects/herdr-thi0x40go/agent-sleep/mods/agent-sleep ~/.config/herdr-app/mods/agent-sleep
    ln -snf ~/Projects/herdr-thi0x40go/orchestrator-wt/mods/orchestrator-wt ~/.config/herdr-app/mods/orchestrator-wt
    ln -snf ~/Projects/herdr-thi0x40go/hibernate/mods/hibernate ~/.config/herdr-app/mods/hibernate
-   ln -snf ~/Projects/herdr-thi0x40go/todos/mods/over9k-todos ~/.config/herdr-app/mods/over9k-todos
+   ln -snf ~/Projects/herdr-thi0x40go/todos/mods/todos ~/.config/herdr-app/mods/todos
+   ln -snf ~/Projects/herdr-thi0x40go/terminal-browser/mods/terminal-browser ~/.config/herdr-app/mods/terminal-browser
    ```
 
 3. **Install CLI wrapper for `todo`:**
@@ -66,7 +75,7 @@ Project task management panel and CLI integration for Herdr and AI agents.
    mkdir -p ~/.local/bin
    cat << 'EOF' > ~/.local/bin/todo
    #!/bin/sh
-   exec sh "$HOME/.config/herdr-app/mods/over9k-todos/todo.sh" "$@"
+   exec sh "$HOME/.config/herdr-app/mods/todos/todo.sh" "$@"
    EOF
    chmod +x ~/.local/bin/todo
    ```
@@ -76,7 +85,8 @@ Project task management panel and CLI integration for Herdr and AI agents.
    herdr-app check ~/.config/herdr-app/mods/agent-sleep
    herdr-app check ~/.config/herdr-app/mods/orchestrator-wt
    herdr-app check ~/.config/herdr-app/mods/hibernate
-   herdr-app check ~/.config/herdr-app/mods/over9k-todos
+   herdr-app check ~/.config/herdr-app/mods/todos
+   herdr-app check ~/.config/herdr-app/mods/terminal-browser
    ```
 
 5. **Register Keybindings in `~/.config/herdr-app/keys.json`:**
@@ -84,7 +94,8 @@ Project task management panel and CLI integration for Herdr and AI agents.
    ```json
    {
      "alt-w": "orchestrator-wt",
-     "alt-z": "hibernate.sleep"
+     "alt-z": "hibernate.sleep",
+     "alt-b": "terminal-browser.open"
    }
    ```
 
@@ -137,16 +148,28 @@ Add the keybinding to `~/.config/herdr-app/keys.json`:
 
 #### 4. Installing `todos` only
 ```bash
-ln -snf ~/Projects/herdr-thi0x40go/todos/mods/over9k-todos ~/.config/herdr-app/mods/over9k-todos
-herdr-app check ~/.config/herdr-app/mods/over9k-todos
+ln -snf ~/Projects/herdr-thi0x40go/todos/mods/todos ~/.config/herdr-app/mods/todos
+herdr-app check ~/.config/herdr-app/mods/todos
 
 # Install CLI wrapper
 mkdir -p ~/.local/bin
 cat << 'EOF' > ~/.local/bin/todo
 #!/bin/sh
-exec sh "$HOME/.config/herdr-app/mods/over9k-todos/todo.sh" "$@"
+exec sh "$HOME/.config/herdr-app/mods/todos/todo.sh" "$@"
 EOF
 chmod +x ~/.local/bin/todo
+```
+
+#### 5. Installing `terminal-browser` only
+```bash
+ln -snf ~/Projects/herdr-thi0x40go/terminal-browser/mods/terminal-browser ~/.config/herdr-app/mods/terminal-browser
+herdr-app check ~/.config/herdr-app/mods/terminal-browser
+```
+Add the keybinding to `~/.config/herdr-app/keys.json`:
+```json
+{
+  "alt-b": "terminal-browser.open"
+}
 ```
 
 ---
