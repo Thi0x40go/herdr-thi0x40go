@@ -27,7 +27,7 @@
 // still exactly what it was when the agent fell asleep: text the person typed
 // there is never run along with the resume command.
 
-import { View, div, image } from "gpui-kit";
+import { View, div, image, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
 import { agents, terminals, panes, spaces, machines, focused, theme, run, hc, shared, setShared, notify, layout, props } from "herdr";
 import { adapterFor, adapterById, isSessionId, getProcessMemory } from "./adapters.js";
@@ -1004,7 +1004,7 @@ export default class AgentSleep extends View {
       .when(!status && since > 0, (el) => el.child(div().flex_none().text_size(11).text_color(t.dim).child(duration(now - since))))
       .child(unseen
         ? div().size(7).mx(3).flex_none().rounded(4).bg(t.done)
-        : div().flex_none().text_size(10.5).font_semibold().text_color(t.dim).child("z"));
+        : svg("icons/moon.svg").size(11).flex_none().text_color(t.dim));
   }
 
   render(cx) {
@@ -1034,26 +1034,30 @@ export default class AgentSleep extends View {
           .items_center()
           .text_size(11)
           .font_medium()
-          .child(div().id("sleep-fold").cursor_pointer().text_color(t.dim).hover((s) => s.text_color(t.foreground))
+          .child(h_flex().id("sleep-fold").gap(4).items_center().cursor_pointer().text_color(t.dim).hover((s) => s.text_color(t.foreground))
             .on_click((_e, cx) => { this.folded = !this.folded; cx.notify(); })
-            .child("Sleeping"))
+            .child(svg("icons/zzz.svg").size(12).text_color(t.dim))
+            .child(div().child("Sleeping")))
           .child(div().text_color(t.dim).child(String(list.length)))
           .child(div().flex_1())
-          .child(div().id("sleep-now").px(5).rounded(4).cursor_pointer().text_color(t.dim)
+          .child(h_flex().id("sleep-now").px(5).py(1).rounded(4).gap(3).items_center().cursor_pointer().text_color(t.dim)
             .hover((s) => s.bg(t.hover).text_color(t.foreground))
             .tooltip("Put focused agent to sleep now (frees RAM)")
             .on_click((_e, cx) => this.sleepFocused(cx))
-            .child("sleep now"))
-          .child(div().id("sleep-sort").px(5).rounded(4).cursor_pointer().text_color(t.dim)
+            .child(svg("icons/moon.svg").size(11).text_color(t.dim))
+            .child(div().child("sleep")))
+          .child(h_flex().id("sleep-sort").px(5).py(1).rounded(4).gap(3).items_center().cursor_pointer().text_color(t.dim)
             .hover((s) => s.bg(t.hover).text_color(t.foreground))
             .tooltip(SORT_TIP[sort])
             .on_click(() => this.cycleSort())
-            .child(SORT_LABEL[sort]))
-          .child(div().id("sleep-delay").px(5).rounded(4).cursor_pointer().text_color(t.dim)
+            .child(svg("icons/sort.svg").size(11).text_color(t.dim))
+            .child(div().child(SORT_LABEL[sort])))
+          .child(h_flex().id("sleep-delay").px(5).py(1).rounded(4).gap(3).items_center().cursor_pointer().text_color(t.dim)
             .hover((s) => s.bg(t.hover).text_color(t.foreground))
             .tooltip("Sleep idle agents after… (click to change)")
             .on_click(() => this.cycleDelay())
-            .child(d > 0 ? `after ${d}m` : "off")),
+            .child(svg("icons/timer.svg").size(11).text_color(t.dim))
+            .child(div().child(d > 0 ? `${d}m` : "off"))),
       )
       .when(!this.folded, (el) => el.child(
         v_flex().id("sleep-list").flex_1().min_h(0).px(8).overflow_y_scrollbar()
