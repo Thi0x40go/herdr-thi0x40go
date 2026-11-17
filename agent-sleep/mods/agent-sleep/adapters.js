@@ -26,14 +26,7 @@ export async function getProcessMemory(pid) {
           pids="$pids $g"
         done
       done
-      pages=0
-      for p in $pids; do
-        if [ -f "/proc/$p/statm" ]; then
-          m=$(awk '{print $2}' "/proc/$p/statm" 2>/dev/null)
-          pages=$((pages + \${m:-0}))
-        fi
-      done
-      echo "$((pages * 4096 / 1024 / 1024)) MB"
+      awk '{s += $2} END {printf "%d MB", s * 4096 / 1024 / 1024}' $(for p in $pids; do [ -f "/proc/$p/statm" ] && echo "/proc/$p/statm"; done) 2>/dev/null
     `]);
     if (r && r.code === 0 && r.stdout.trim() && !r.stdout.includes("0 MB")) {
       return r.stdout.trim();
@@ -64,7 +57,12 @@ function draftAfter(markers, border = null) {
       if (at >= 0) break;
     }
     if (at < 0) return true;
-    if (lines[at].trimStart().slice(matched.length).trim() !== "") return true;
+    let text = lines[at].trimStart().slice(matched.length).trim();
+    // Ignore known placeholder hints (e.g. Kiro's "ask a question or describe a task ↵")
+    if (text.startsWith("ask a question") || text.includes("describe a task")) {
+      text = "";
+    }
+    if (text !== "") return true;
     if (!border) return false;
     for (let i = at + 1; i < lines.length; i++) {
       const l = lines[i].trim();
@@ -204,11 +202,16 @@ export const ADAPTERS = [
     name: "Kiro",
     icon: "icons/kiro.svg",
     experimental: false,
-    matches: (agent, terminal) =>
-      (agent?.app === "kiro" || agent?.program?.key === "kiro" || terminal.foreground?.name === "kiro-cli" || terminal.foreground?.name === "kiro") &&
-      (terminal.foreground?.name === "kiro-cli" || terminal.foreground?.name === "kiro"),
-    isRunning: (terminal) =>
-      terminal.foreground?.name === "kiro-cli" || terminal.foreground?.name === "kiro",
+    matches: (agent, terminal) => {
+      const fg = terminal.foreground?.name;
+      const isKiroFg = fg === "kiro-cli" || fg === "kiro";
+      const isKiroAgent = agent?.app === "kiro" || agent?.app === "kiro-cli" || agent?.program?.key === "kiro";
+      return isKiroFg || isKiroAgent;
+    },
+    isRunning: (terminal) => {
+      const fg = terminal.foreground?.name;
+      return fg === "kiro-cli" || fg === "kiro";
+    },
     async session(pid, terminal) {
       // 1. From argv if present (e.g. kiro-cli ... --resume-id sess_... or ... <id>)
       if (terminal?.foreground?.argv) {
@@ -218,7 +221,14 @@ export const ADAPTERS = [
         }
       }
 
-      // 2. Resolve via process tree (kiro-cli -> bun -> node) and ~/.kiro/session-leases/
+      // 2. From terminal labels (e.g. kiro.cmd)
+      if (terminal?.labels?.["kiro.cmd"]) {
+        const m = terminal.labels["kiro.cmd"].match(new RegExp(`(${SESSION_ID})`, "i"));
+        if (m && isSessionId(m[1])) return { id: m[1], startedAt: null, status: null };
+      }
+
+      // 3. Resolve via process tree (kiro-cli -> bun -> node) and ~/.kiro/session-leases/
+      const h = home();
       const leaseRes = await exec("sh", ["-c", `
         pids="${pid}"
         for c in $(pgrep -P ${pid} 2>/dev/null); do
@@ -227,10 +237,10 @@ export const ADAPTERS = [
             pids="$pids $g"
           done
         done
-        for f in "$HOME/.kiro/session-leases/"*.lease; do
+        for f in "${h}/.kiro/session-leases/"*.lease; do
           [ -f "$f" ] || continue
           for p in $pids; do
-            if grep -q "\"pid\":$p\\b\\|\"parentPid\":$p\\b" "$f" 2>/dev/null; then
+            if grep -q ":$p," "$f" 2>/dev/null || grep -q ":$p}" "$f" 2>/dev/null; then
               basename "$f" .lease
               exit 0
             fi
@@ -239,25 +249,21 @@ export const ADAPTERS = [
       `]).catch(() => null);
 
       if (leaseRes && leaseRes.code === 0 && leaseRes.stdout.trim()) {
-        const id = leaseRes.stdout.trim();
+        const id = leaseRes.stdout.trim().split("\n")[0].trim();
         if (isSessionId(id)) return { id, startedAt: null, status: null };
       }
 
-      // 3. Check open file descriptors of pid and its children
-      const fdRes = await exec("sh", ["-c", `
-        pids="${pid} $(pgrep -P ${pid} 2>/dev/null)"
-        for p in $pids; do
-          ls -l /proc/$p/fd 2>/dev/null | grep -oE '(sess_)?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' && exit 0
-        done
+      // 4. Fallback: most recently modified session in ~/.kiro/sessions/cli/*.history
+      const historyRes = await exec("sh", ["-c", `
+        ls -t "${h}/.kiro/sessions/cli/"sess_*.history 2>/dev/null | head -n 1
       `]).catch(() => null);
-
-      if (fdRes && fdRes.code === 0 && fdRes.stdout.trim()) {
-        const id = fdRes.stdout.trim().split("\n")[0].trim();
-        if (isSessionId(id)) return { id, startedAt: null, status: null };
+      if (historyRes && historyRes.code === 0 && historyRes.stdout.trim()) {
+        const m = historyRes.stdout.match(new RegExp(`(${SESSION_ID})\\.history`, "i"));
+        if (m && isSessionId(m[1])) return { id: m[1], startedAt: null, status: null };
       }
 
-      // 4. Fallback: most recently modified lease file
-      const recent = await exec("sh", ["-c", `ls -t "$HOME/.kiro/session-leases/"*.lease 2>/dev/null | head -n 1`]).catch(() => null);
+      // 5. Fallback: most recently modified lease file
+      const recent = await exec("sh", ["-c", `ls -t "${h}/.kiro/session-leases/"*.lease 2>/dev/null | head -n 1`]).catch(() => null);
       if (recent && recent.code === 0 && recent.stdout.trim()) {
         const m = recent.stdout.match(new RegExp(`(${SESSION_ID})\\.lease`, "i"));
         if (m && isSessionId(m[1])) return { id: m[1], startedAt: null, status: null };
