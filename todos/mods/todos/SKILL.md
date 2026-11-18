@@ -20,7 +20,8 @@ O executável `todo` está disponível no PATH (`~/.local/bin/todo`).
 | `todo -s` | Exibe tarefas incluindo a listagem detalhada de subtasks |
 | `todo show <n>` | Exibe detalhes completos de uma tarefa: status, grupo, prioridade, tags, descrição e subtasks |
 | `todo add <texto>` | Adiciona uma nova tarefa ao projeto |
-| `todo add -g <grupo> --prio <p0-p3> --tags <t1,t2> --desc "<desc>" <texto>` | Adiciona tarefa com metadados estruturados |
+| `todo add -g <grupo> --prio <p0-p3> --tags <t1,t2> --url <link> --desc "<desc>" <texto>` | Adiciona tarefa com metadados estruturados e link |
+| `todo add --urls "card=https://...,mr=https://..." <texto>` | Adiciona tarefa com múltiplos links nomeados |
 | `todo add --due "YYYY-MM-DD[ HH:MM]" <texto>` | Adiciona tarefa com prazo de entrega |
 | `todo sub <n> <texto>` | Adiciona uma subtask à tarefa pai `n` |
 | `todo done <n\|texto>` | Marca o item principal `n` como concluído |

@@ -174,7 +174,34 @@ function parseLine(text) {
       priority = (p === "p0" || p === "urgent") ? "P0" : (p === "p1" || p === "high") ? "P1" : (p === "p2" || p === "med") ? "P2" : "P3";
     }
   }
-  return { text: clean, due, doneOn: done, group, priority, meta: meta ?? ((group || priority) ? { group, priority } : null) };
+
+  let urls = [];
+  if (meta?.urls) {
+    if (Array.isArray(meta.urls)) urls = meta.urls.map((u) => (typeof u === "string" ? { name: "link", url: u } : u));
+    else if (typeof meta.urls === "object") urls = Object.entries(meta.urls).map(([name, url]) => ({ name, url }));
+  } else if (meta?.url) {
+    urls = [{ name: "link", url: meta.url }];
+  }
+  const mdLinks = [...clean.matchAll(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g)];
+  for (const m of mdLinks) {
+    if (!urls.some((u) => u.url === m[2])) urls.push({ name: m[1], url: m[2] });
+  }
+  const rawLinks = [...clean.matchAll(/(?<!\()(https?:\/\/[^\s)]+)/g)];
+  for (const m of rawLinks) {
+    if (!urls.some((u) => u.url === m[1])) {
+      const domain = m[1].replace(/^https?:\/\/(?:www\.)?/, "").split("/")[0];
+      urls.push({ name: domain || "link", url: m[1] });
+    }
+  }
+
+  const resMeta = meta ? { ...meta } : ((group || priority || urls.length) ? {} : null);
+  if (resMeta) {
+    if (group) resMeta.group = group;
+    if (priority) resMeta.priority = priority;
+    if (urls.length) resMeta.urls = urls;
+  }
+
+  return { text: clean, due, doneOn: done, group, priority, urls, meta: resMeta };
 }
 // "<!-- skip: text -->" lines: TODO.md items hidden from the suggestions.
 function parse(raw) {
@@ -989,7 +1016,7 @@ export default class Todos extends View {
       const subDone = x.subtasks?.filter(s => s.done).length ?? 0;
       const subTotal = x.subtasks?.length ?? 0;
       const isExp = this.expanded?.has(key);
-      const hasDetails = subTotal > 0 || Boolean(x.description);
+      const hasDetails = subTotal > 0 || Boolean(x.description) || Boolean(x.urls?.length);
       return h_flex().id(`todo-${key}`).min_h(30).px(8).gap(8).items_center().rounded(8)
         .when(on, (el) => el.bg(t.accent + "38")).hover((s) => s.bg(on ? t.accent + "38" : t.hover))
         .on_click((e, cx) => { if (multi(e) && !editing && this.filter) this.pick(x, e, cx); })
@@ -1010,7 +1037,8 @@ export default class Todos extends View {
           .on_click((_e, cx) => { cx.stop_propagation(); this.toggleExpand(key, cx); })
           .child(svg(`mods/workspace-chrome/chevron-${isExp ? "down" : "right"}.svg`).size(8).text_color(t.muted))
           .when(subTotal > 0, (b) => b.child(div().text_size(9.5).text_color(subDone === subTotal ? t.ansi2 : t.muted).child(`${subDone}/${subTotal}`)))
-          .when(Boolean(x.description) && subTotal === 0, (b) => b.child(div().text_size(9.5).text_color(t.dim).child("desc")))))
+          .when(Boolean(x.description) && subTotal === 0, (b) => b.child(div().text_size(9.5).text_color(t.dim).child("desc")))
+          .when(Boolean(x.urls?.length) && subTotal === 0 && !x.description, (b) => b.child(div().text_size(9.5).text_color(t.ansi4).child("links")))))
         .child(editing
           ? Input.new(this.editInput).flex_1().h(24).px(6).rounded(5).border_1().border_color(t.accent).bg(t.background).text_size(13).text_color(t.foreground)
           : div().id(`text-${key}`).flex_1().min_w(0).text_size(13).line_height("18px").text_color(x.done ? t.dim : t.foreground).when(x.done, (el) => el.line_through())
@@ -1121,6 +1149,17 @@ export default class Todos extends View {
         .when(Boolean(x.description), (el) => el.child(
           div().px(6).py(3).rounded(4).bg(t.raised).border_l_2().border_color(t.accent).text_size(11.5).text_color(t.dim).child(x.description)
         ))
+        .when(Boolean(x.urls && x.urls.length > 0), (el) => el.child(
+          h_flex().gap(4).flex_wrap().children(x.urls.map((u, ui) =>
+            h_flex().id(`url-${key}-${ui}`).px(6).py(2).rounded(4).bg(t.raised).border_1().border_color(t.border).gap(4).items_center().cursor_pointer()
+              .hover((st) => st.bg(t.hover).border_color(t.accent))
+              .on_click((_e, _cx) => {
+                exec("xdg-open", [u.url]).catch(() => null);
+              })
+              .child(svg("mods/todos/link.svg").size(10).text_color(t.ansi4))
+              .child(div().text_size(11).text_color(t.ansi4).child(u.name || "link"))
+          ))
+        ))
         .when(subtasks.length > 0, (el) => el.children(subtasks.map((s, si) =>
           h_flex().id(`sub-${key}-${si}`).min_h(22).px(4).gap(6).items_center().rounded(4).hover((st) => st.bg(t.hover))
             .child(div().id(`subtick-${key}-${si}`).size(12).flex_none().rounded(6).border_1().cursor_pointer().border_color(s.done ? t.ansi2 : t.muted)
@@ -1159,7 +1198,7 @@ export default class Todos extends View {
       const isExp = this.expanded?.has(key);
       const res = [row(x)];
       if (this.startFor === key) res.push(starter(x));
-      if (isExp && ((x.subtasks && x.subtasks.length > 0) || Boolean(x.description))) res.push(detailsBlock(x));
+      if (isExp && ((x.subtasks && x.subtasks.length > 0) || Boolean(x.description) || Boolean(x.urls?.length))) res.push(detailsBlock(x));
       return res;
     };
 

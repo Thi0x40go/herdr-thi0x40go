@@ -74,6 +74,7 @@ class Task:
         self.priority = None
         self.tags = []
         self.assignee = None
+        self.urls = []
         self.due = None
         self.done_at = None
         self.clean_title = ""
@@ -113,7 +114,33 @@ class Task:
             self.priority = meta.get("priority") or self.priority
             self.tags = meta.get("tags") or self.tags
             self.assignee = meta.get("assignee") or self.assignee
+            if "urls" in meta:
+                val = meta["urls"]
+                if isinstance(val, dict):
+                    for k, v in val.items():
+                        self.urls.append({"name": str(k), "url": str(v)})
+                elif isinstance(val, list):
+                    for u in val:
+                        if isinstance(u, dict):
+                            self.urls.append(u)
+                        elif isinstance(u, str):
+                            self.urls.append({"name": "link", "url": u})
+            elif "url" in meta:
+                self.urls.append({"name": "link", "url": str(meta["url"])})
             text = text.replace(m_meta.group(0), "")
+
+        # Extract markdown links: [text](https://...)
+        for m in re.finditer(r'\[([^\]]+)\]\((https?://[^\s)]+)\)', text):
+            lname, lurl = m.group(1), m.group(2)
+            if not any(x.get("url") == lurl for x in self.urls):
+                self.urls.append({"name": lname, "url": lurl})
+
+        # Extract standalone URLs: https://...
+        for m in re.finditer(r'(?<!\()(https?://[^\s)]+)', text):
+            lurl = m.group(1)
+            if not any(x.get("url") == lurl for x in self.urls):
+                domain = re.sub(r'^https?://(?:www\.)?', '', lurl).split('/')[0]
+                self.urls.append({"name": domain or "link", "url": lurl})
 
         # Extract [CARD-XXXX] or [TASK-XXXX]
         m_card = RE_CARD.search(text)
@@ -154,6 +181,7 @@ class Task:
             "group": self.group,
             "priority": self.priority,
             "tags": self.tags,
+            "urls": self.urls,
             "assignee": self.assignee,
             "due": self.due,
             "done_at": self.done_at,
@@ -258,6 +286,8 @@ class ProjectTodoList:
                 meta_dict["tags"] = t.tags
             if t.assignee:
                 meta_dict["assignee"] = t.assignee
+            if t.urls:
+                meta_dict["urls"] = t.urls
 
             title = t.clean_title
             extra_meta = f" <!-- meta: {json.dumps(meta_dict, ensure_ascii=False)} -->" if meta_dict else ""
@@ -368,6 +398,10 @@ def cmd_show(args):
         print(f"Tags:     {', '.join(t.tags)}")
     if t.assignee:
         print(f"Assignee: {t.assignee}")
+    if t.urls:
+        print(f"URLs:")
+        for u in t.urls:
+            print(f"  - {CLR_CYAN}{u.get('name', 'link')}{CLR_RESET}: {u.get('url', '')}")
     if t.due:
         print(f"Due Date: {t.due}")
     if t.done_at:
@@ -412,6 +446,15 @@ def cmd_add(args):
         t.assignee = f"@{args.assignee.lstrip('@')}"
     if args.due:
         t.due = args.due
+    if args.url:
+        t.urls.append({"name": "link", "url": args.url})
+    if args.urls:
+        for pair in args.urls.split(","):
+            if "=" in pair:
+                k, v = pair.split("=", 1)
+                t.urls.append({"name": k.strip(), "url": v.strip()})
+            else:
+                t.urls.append({"name": "link", "url": pair.strip()})
     if args.desc:
         t.description = args.desc
 
@@ -624,6 +667,8 @@ def main():
     p_add.add_argument("--tags", help="Comma-separated tags")
     p_add.add_argument("--assignee", help="Assignee (@agent)")
     p_add.add_argument("--due", help="Due date YYYY-MM-DD[ HH:MM]")
+    p_add.add_argument("--url", help="URL link (e.g. https://gitlab.com/...)")
+    p_add.add_argument("--urls", help="Key-value URLs (e.g. card=https://...,mr=https://...)")
     p_add.add_argument("--desc", help="Markdown description")
 
     # sub

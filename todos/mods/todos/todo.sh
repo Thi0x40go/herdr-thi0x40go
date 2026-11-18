@@ -44,16 +44,32 @@ if [ "${1:-}" = --rule ]; then
 
 Each project has a to-do list the user sees in Herdr's To-do panel and edits there
 too. Use the `todo` command (it picks the project from the git repo you run it in):
-`todo` lists it, `todo add <text>` adds, `todo done <n>` ticks, `todo rm <n>` deletes,
-`todo all` shows every project's. While request logging is on
-for that project
-(`todo log` says; in Claude Code a note on each message says so), add each thing
-the user asks for in a project (a change, a fix, a feature), even mid-task, as soon
-as you read it, and tick it once it's done and checked; leave it open if it's only
-partly done, and say so. When they change, narrow or drop a request, correct its
-item instead of adding another: `todo edit <n> <new text>` rewords it, `todo rm <n>`
-removes it. When they say to stop or start logging, run `todo log off` / `todo log on` (that project only). Also add an item when the user asks you to note something for later, or
-when you leave follow-up work undone. Keep items short, one line each.
+- `todo` lists open & done items with indices, groups, priorities, and subtask counts
+- `todo show <n>` shows full details (tags, urls, description, and subtasks)
+- `todo add <text>` adds a task. Options:
+  - `-g <CARD-ID>` or `[CARD-ID]`: groups task under a card (e.g. `-g CARD-2467`)
+  - `--prio <p0..p3>` or `!p0`..`!p3`: priority (P0 urgent/critical, P1 high, P2 medium, P3 low)
+  - `--url <url>` or `--urls "name=url,name2=url2"`: links MRs, task cards, PRDs or tickets
+  - `--tags <tag1,tag2>`: categorization tags
+  - `--assignee @user`: assign to an agent or user
+  - `--due "YYYY-MM-DD[ HH:MM]"`: due date
+  - `--desc "<markdown>"`: multi-line specification/description
+- `todo sub <n> <text>`: adds a nested subtask to parent task <n>
+- `todo done <n>`: marks task <n> as complete
+- `todo done <p.s>`: marks subtask s of parent task p as complete (e.g. `todo done 16.2`)
+- `todo undo <n|p.s>`: unticks a task or subtask
+- `todo edit <n|p.s> <new text>`: rewords a task or subtask
+- `todo desc <n> <text>`: updates the markdown description of task <n>
+- `todo rm <n|p.s>`: deletes a task or subtask
+- `todo json`: exports tasks and metadata as structured JSON
+- `todo all`: shows every project's list
+
+While request logging is on (`todo log` says on):
+1. Add each task/feature/fix the user asks for as soon as you read it.
+2. Group tasks by active Card/Issue (e.g. `-g CARD-XXXX`) and assign priority when relevant.
+3. Link relevant URLs (e.g. `--url <ticket-or-MR-link>`) so they appear directly in Herdr.
+4. For complex tasks, break them down into subtasks (`todo sub <n> <step>`).
+5. Tick off items/subtasks (`todo done <n|p.s>`) immediately once completed and validated.
 <!-- /herdr:todo -->
 EOF
     } >> "$f"
@@ -180,7 +196,7 @@ case "$cmd" in
     has_ext=0
     for arg in "$@"; do
       case "$arg" in
-        -g|--group|--prio|--priority|--tags|--assignee|--desc) has_ext=1; break ;;
+        -g|--group|--prio|--priority|--tags|--assignee|--desc|--url|--urls) has_ext=1; break ;;
       esac
     done
     if [ "$has_ext" = 1 ] && [ -n "$PY" ] && [ -f "$ENGINE" ]; then
