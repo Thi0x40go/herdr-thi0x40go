@@ -218,7 +218,22 @@ class ProjectTodoList:
         in_desc = False
         desc_lines = []
 
-        for line in lines:
+        start_idx = 0
+        if lines and lines[0].strip() == "---":
+            for i in range(1, len(lines)):
+                if lines[i].strip() == "---":
+                    start_idx = i + 1
+                    break
+                line_str = lines[i].rstrip("\r\n")
+                if ":" in line_str:
+                    k, v = line_str.split(":", 1)
+                    k, v = k.strip(), v.strip().strip('"\'')
+                    if k == "folder":
+                        self.folder = v
+                    elif k in ("log", "sync"):
+                        self.flags[k] = v
+
+        for line in lines[start_idx:]:
             raw = line.rstrip("\r\n")
 
             # Check folder
@@ -269,11 +284,12 @@ class ProjectTodoList:
 
     def save(self):
         self.filepath.parent.mkdir(parents=True, exist_ok=True)
-        lines = []
+        lines = ["---"]
         if self.folder:
-            lines.append(f"<!-- folder: {self.folder} -->")
+            lines.append(f"folder: {self.folder}")
         for k, v in sorted(self.flags.items()):
-            lines.append(f"<!-- {k}: {v} -->")
+            lines.append(f"{k}: {v}")
+        lines.append("---")
 
         for t in self.tasks:
             mark = "x" if t.status == "done" else ("-" if t.status == "doing" else " ")

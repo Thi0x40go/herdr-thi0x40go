@@ -37,7 +37,11 @@ if [ "${1:-}" = --rule ]; then
     fi
     [ "${2:-}" = on ] && {
       [ -s "$f" ] && printf '\n'
-      [ "$f" = "$HOME/.kiro/steering/todo.md" ] && printf -- '---\ninclusion: always\n---\n'
+      if [ "$f" = "$HOME/.kiro/steering/todo.md" ]; then
+        printf -- '---\ninclusion: always\nname: herdr-todos\ndescription: "Gerenciamento de tarefas do projeto sincronizado em tempo real com o Herdr"\ntools: [todo]\n---\n'
+      else
+        printf -- '---\nname: herdr-todos\ndescription: "Gerenciamento de tarefas do projeto sincronizado em tempo real com o Herdr"\ntools: [todo]\n---\n'
+      fi
       cat <<'EOF'
 <!-- herdr:todo -->
 ## Project to-do lists (Herdr)

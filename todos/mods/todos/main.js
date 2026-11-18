@@ -103,6 +103,8 @@ function hue(name) {
   return MARK[keys[h % keys.length]];
 }
 
+const prioCol = (p) => (p === "P0" ? "#f36458" : p === "P1" ? "#e3814f" : p === "P2" ? "#0052ef" : "#797979");
+
 const pad = (n) => String(n).padStart(2, "0");
 const dayKey = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 const today = () => dayKey(new Date());
@@ -205,10 +207,24 @@ function parseLine(text) {
 }
 // "<!-- skip: text -->" lines: TODO.md items hidden from the suggestions.
 function parse(raw) {
-  const folder = /^<!-- folder: (.*) -->$/m.exec(raw ?? "")?.[1] ?? null;
+  let folder = null, log = null, sync = null;
+  const fmMatch = /^---\r?\n([\s\S]*?)\r?\n---/m.exec(raw ?? "");
+  if (fmMatch) {
+    const fmLines = fmMatch[1].split("\n");
+    for (const line of fmLines) {
+      const [k, ...vParts] = line.split(":");
+      if (!k || !vParts.length) continue;
+      const v = vParts.join(":").trim().replace(/^["']|["']$/g, "");
+      if (k.trim() === "folder") folder = v;
+      if (k.trim() === "log") log = v;
+      if (k.trim() === "sync") sync = v;
+    }
+  }
+  folder ??= /^<!-- folder: (.*) -->$/m.exec(raw ?? "")?.[1] ?? null;
+  log ??= /^<!-- log: (on|off) -->$/m.exec(raw ?? "")?.[1];
+  sync ??= /^<!-- sync: (on|off) -->$/m.exec(raw ?? "")?.[1];
   const skipped = [...(raw ?? "").matchAll(/^<!-- skip: (.*) -->$/gm)].map((m) => m[1]);
-  // "<!-- log: on|off -->" / "<!-- sync: on|off -->" when set, else the default.
-  const d = defOpts(), log = /^<!-- log: (on|off) -->$/m.exec(raw ?? "")?.[1], sync = /^<!-- sync: (on|off) -->$/m.exec(raw ?? "")?.[1];
+  const d = defOpts();
   const opts = { log: log ? log === "on" : d.log, sync: sync ? sync === "on" : d.sync, set: { log: Boolean(log), sync: Boolean(sync) } };
 
   const lines = (raw ?? "").split("\n");
@@ -216,8 +232,14 @@ function parse(raw) {
   let cur = null;
   let inDesc = false;
   let descLines = [];
+  let inFm = /^---\r?$/.test(lines[0]?.trim() ?? "");
 
-  for (const l of lines) {
+  for (let li = 0; li < lines.length; li++) {
+    const l = lines[li];
+    if (inFm) {
+      if (li > 0 && l.trim() === "---") inFm = false;
+      continue;
+    }
     if (inDesc) {
       if (/^\s*-->$/.test(l)) {
         inDesc = false;
@@ -268,7 +290,12 @@ const line = (i) => {
   }
   return parts.join("\n");
 };
-const serialize = (folder, items, skipped = [], opts = {}) => `<!-- folder: ${folder} -->\n${opts.set?.log ? `<!-- log: ${opts.log ? "on" : "off"} -->\n` : ""}${opts.set?.sync ? `<!-- sync: ${opts.sync ? "on" : "off"} -->\n` : ""}${skipped.map((x) => `<!-- skip: ${x.replace(/-->/g, "")} -->\n`).join("")}${items.map(line).join("\n")}${items.length ? "\n" : ""}`;
+const serialize = (folder, items, skipped = [], opts = {}) => `---
+folder: ${folder}
+log: ${opts.log ? "on" : "off"}
+sync: ${opts.sync ? "on" : "off"}
+---
+${skipped.map((x) => `<!-- skip: ${x.replace(/-->/g, "")} -->\n`).join("")}${items.map(line).join("\n")}${items.length ? "\n" : ""}`;
 
 // A project's own to-do file (TODO.md and the like), read, never written: its
 // open items ("- [ ] …", or every bullet when it has no checkboxes).
@@ -571,6 +598,75 @@ export default class Todos extends View {
     this.subInput = InputState.new({ placeholder: "Add a subtask..." });
     this.subInput.on("submit", (_e, cx) => this.saveSub(cx));
     this.subInput.on("blur", (_e, cx) => { if (this.subFor) { this.subFor = null; cx.notify(); } });
+
+    this.createPrio = null;
+    this.createGroup = "";
+    this.showDrawer = false;
+    this.pendingUrls = [];
+    this.pendingSubs = [];
+    this.descInput = InputState.new({ placeholder: "Markdown description / specs..." });
+    this.groupInput = InputState.new({ placeholder: "CARD-XXXX" });
+    this.urlNameInput = InputState.new({ placeholder: "Label (MR, Card)" });
+    this.urlLinkInput = InputState.new({ placeholder: "https://..." });
+    this.subDraftInput = InputState.new({ placeholder: "Subtask title..." });
+    this.linkFor = null;
+    this.linkNameInput = InputState.new({ placeholder: "Label" });
+    this.linkUrlInput = InputState.new({ placeholder: "https://..." });
+  }
+
+  cyclePrio(cx) {
+    const seq = [null, "P0", "P1", "P2", "P3"];
+    const idx = seq.indexOf(this.createPrio);
+    this.createPrio = seq[(idx + 1) % seq.length];
+    cx.notify();
+  }
+
+  addPendingUrl(cx) {
+    const url = this.urlLinkInput.value().trim();
+    if (!url) return;
+    const name = this.urlNameInput.value().trim() || "link";
+    this.pendingUrls.push({ name, url });
+    this.urlLinkInput.set_value("");
+    this.urlNameInput.set_value("");
+    cx.notify();
+  }
+
+  removePendingUrl(idx, cx) {
+    this.pendingUrls = this.pendingUrls.filter((_, i) => i !== idx);
+    cx.notify();
+  }
+
+  addPendingSub(cx) {
+    const text = this.subDraftInput.value().trim();
+    if (!text) return;
+    this.pendingSubs.push(text);
+    this.subDraftInput.set_value("");
+    cx.notify();
+  }
+
+  removePendingSub(idx, cx) {
+    this.pendingSubs = this.pendingSubs.filter((_, i) => i !== idx);
+    cx.notify();
+  }
+
+  saveTaskLink(cx) {
+    const k = this.linkFor;
+    const url = this.linkUrlInput.value().trim();
+    if (!k || !url) { this.linkFor = null; return cx.notify(); }
+    const name = this.linkNameInput.value().trim() || "link";
+    const [slug, iStr] = k.split(":");
+    const idx = Number(iStr);
+    this.linkUrlInput.set_value("");
+    this.linkNameInput.set_value("");
+    this.linkFor = null;
+    this.change(slug, (items) => items.map((it, j) => {
+      if (j === idx) {
+        const urls = [...(it.urls ?? []), { name, url }];
+        const meta = { ...(it.meta ?? {}), urls };
+        return { ...it, urls, meta };
+      }
+      return it;
+    }), cx);
   }
 
   toggleExpand(key, cx) {
@@ -920,7 +1016,7 @@ export default class Todos extends View {
     if (tag) { const f = this.projectFor(tag[1]); if (f) { folder = f; text = (text.slice(0, tag.index) + text.slice(tag.index + tag[0].length)).replace(/\s+/g, " ").trim(); } }
     if (!folder) return;
 
-    let priority = null;
+    let priority = this.createPrio;
     const prioM = /(?:^|\s)!(p[0-3]|urgent|high|med|low)\b/i.exec(text);
     if (prioM) {
       const p = prioM[1].toLowerCase();
@@ -928,7 +1024,7 @@ export default class Todos extends View {
       text = (text.slice(0, prioM.index) + text.slice(prioM.index + prioM[0].length)).replace(/\s+/g, " ").trim();
     }
 
-    let group = null;
+    let group = (this.groupInput.value().trim() || this.createGroup?.trim() || null);
     const cardM = /(?:^|\s)(?:#|\[)(CARD-[0-9]+|TASK-[0-9]+)(?:\])?/i.exec(text);
     if (cardM) {
       group = cardM[1].toUpperCase();
@@ -939,8 +1035,34 @@ export default class Todos extends View {
     const slug = keyOf(folder), l = this.lists[slug];
     this.input.set_value("");
     this.typed = "";
-    const meta = (group || priority) ? { group, priority } : null;
-    cx.spawn(async (cx) => this.write(slug, folder, [...(l?.items ?? []), { done: false, text: rest, due, doneOn: null, group, priority, meta, subtasks: [], description: "" }], cx));
+
+    const urls = [...(this.pendingUrls ?? [])];
+    const subtasks = (this.pendingSubs ?? []).map((st) => ({ done: false, text: st, doneOn: null }));
+    const description = this.descInput.value().trim();
+
+    this.createPrio = null;
+    this.createGroup = "";
+    this.groupInput.set_value("");
+    this.pendingUrls = [];
+    this.pendingSubs = [];
+    this.descInput.set_value("");
+    this.showDrawer = false;
+
+    const meta = (group || priority || urls.length) ? { group, priority, urls } : null;
+    const newItem = {
+      done: false,
+      text: rest,
+      due,
+      doneOn: null,
+      group,
+      priority,
+      meta,
+      subtasks,
+      urls,
+      description
+    };
+
+    cx.spawn(async (cx) => this.write(slug, folder, [...(l?.items ?? []), newItem], cx));
     toFile(folder, "add", rest);
   }
 
@@ -1186,12 +1308,28 @@ export default class Todos extends View {
               })
               .child(svg("mods/workspace-chrome/x.svg").size(9).text_color(t.muted)))
         )))
-        .child(adding
-          ? Input.new(this.subInput).h(22).px(6).rounded(4).border_1().border_color(t.accent).bg(t.background).text_size(11.5).text_color(t.foreground)
-          : h_flex().id(`addsub-${key}`).h(20).px(4).gap(4).items_center().rounded(4).cursor_pointer().text_size(11).text_color(t.muted)
-            .hover((st) => st.bg(t.hover).text_color(t.foreground))
-            .on_click((_e, cx) => { this.subFor = key; this.subInput.set_value(""); this.subInput.focus(); cx.notify(); })
-            .child(div().child("+ Add subtask")));
+        .child(this.linkFor === key
+          ? h_flex().gap(4).items_center()
+            .child(Input.new(this.linkNameInput).w(70).h(22).px(5).rounded(4).border_1().border_color(t.border).bg(t.background).text_size(11).text_color(t.foreground))
+            .child(Input.new(this.linkUrlInput).flex_1().h(22).px(5).rounded(4).border_1().border_color(t.border).bg(t.background).text_size(11).text_color(t.foreground))
+            .child(div().h(22).px(7).rounded(4).bg(t.raised).border_1().border_color(t.border).cursor_pointer()
+              .hover((st) => st.bg(t.hover)).flex().items_center().justify_center()
+              .on_click((_e, cx) => this.saveTaskLink(cx))
+              .child(div().text_size(10.5).text_color(t.accent).child("Save")))
+            .child(div().size(18).cursor_pointer().flex().items_center().justify_center()
+              .on_click((_e, cx) => { this.linkFor = null; cx.notify(); })
+              .child(svg("mods/workspace-chrome/x.svg").size(9).text_color(t.muted)))
+          : (adding
+            ? Input.new(this.subInput).h(22).px(6).rounded(4).border_1().border_color(t.accent).bg(t.background).text_size(11.5).text_color(t.foreground)
+            : h_flex().gap(12).items_center()
+              .child(h_flex().id(`addsub-${key}`).h(20).px(4).gap(4).items_center().rounded(4).cursor_pointer().text_size(11).text_color(t.muted)
+                .hover((st) => st.bg(t.hover).text_color(t.foreground))
+                .on_click((_e, cx) => { this.subFor = key; this.subInput.set_value(""); this.subInput.focus(); cx.notify(); })
+                .child(div().child("+ Add subtask")))
+              .child(h_flex().id(`addlink-${key}`).h(20).px(4).gap(4).items_center().rounded(4).cursor_pointer().text_size(11).text_color(t.muted)
+                .hover((st) => st.bg(t.hover).text_color(t.foreground))
+                .on_click((_e, cx) => { this.linkFor = key; this.linkNameInput.set_value(""); this.linkUrlInput.set_value(""); cx.notify(); })
+                .child(div().child("+ Add link")))));
     };
     const withStarter = (x) => {
       const key = `${x.slug}:${x.i}`;
@@ -1244,7 +1382,84 @@ export default class Todos extends View {
           else return;
           cx.notify();
         })
-        .child(Input.new(this.input).h(30).px(9).rounded(8).bg(t.raised).text_size(13).text_color(t.foreground))
+        .child(h_flex().gap(6).items_center()
+          .child(Input.new(this.input).flex_1().h(32).px(10).rounded(7).border_1().border_color(t.border).bg(t.raised).text_size(13).text_color(t.foreground))
+          .child(div().id("btn-add-task").h(32).px(12).rounded(9999).bg("#f36458").cursor_pointer().flex().items_center().justify_center()
+            .hover((st) => st.bg("#0052ef"))
+            .on_click((_e, cx) => { if (this.sugs?.length) this.accept(cx); else this.add(this.input.value(), cx); })
+            .child(div().text_size(12).font_semibold().text_color("#ffffff").child("Add Task"))))
+        .child(h_flex().min_h(24).gap(4).items_center().flex_wrap()
+          .child(h_flex().id("opt-prio").h(22).px(7).gap(4).items_center().rounded(9999).cursor_pointer()
+            .border_1().border_color(this.createPrio ? prioCol(this.createPrio) : t.border)
+            .bg(this.createPrio ? prioCol(this.createPrio) + "22" : t.raised + "44")
+            .hover((st) => st.bg(t.hover))
+            .on_click((_e, cx) => this.cyclePrio(cx))
+            .child(div().text_size(10.5).font_semibold().text_color(this.createPrio ? prioCol(this.createPrio) : t.muted)
+              .child(this.createPrio ? `Prio: ${this.createPrio}` : "Priority")))
+          .child(h_flex().id("opt-group").h(22).px(7).gap(4).items_center().rounded(9999).cursor_pointer()
+            .border_1().border_color(this.createGroup ? t.ansi6 : t.border)
+            .bg(this.createGroup ? t.ansi6 + "22" : t.raised + "44")
+            .hover((st) => st.bg(t.hover))
+            .on_click((_e, cx) => {
+              if (activeGroups.length) {
+                const curIdx = activeGroups.indexOf(this.createGroup);
+                this.createGroup = activeGroups[(curIdx + 1) % (activeGroups.length + 1)] || "";
+              } else {
+                this.showDrawer = !this.showDrawer;
+              }
+              cx.notify();
+            })
+            .child(div().text_size(10.5).text_color(this.createGroup ? t.ansi6 : t.muted)
+              .child(this.createGroup ? `#${this.createGroup}` : "#Card")))
+          .child(h_flex().id("opt-details").h(22).px(7).gap(4).items_center().rounded(9999).cursor_pointer()
+            .border_1().border_color(this.showDrawer ? t.accent : t.border)
+            .bg(this.showDrawer ? t.accent + "22" : t.raised + "44")
+            .hover((st) => st.bg(t.hover))
+            .on_click((_e, cx) => { this.showDrawer = !this.showDrawer; cx.notify(); })
+            .child(div().text_size(10.5).text_color(this.showDrawer ? t.accent : t.muted)
+              .child(this.showDrawer ? "− Hide Details" : "+ Add Details (URLs, Subtasks, Desc)")))
+          .when(this.pendingUrls.length > 0, (b) => b.child(div().text_size(10.5).text_color(t.ansi4).child(`(${this.pendingUrls.length} urls)`)))
+          .when(this.pendingSubs.length > 0, (b) => b.child(div().text_size(10.5).text_color(t.ansi2).child(`(${this.pendingSubs.length} subtasks)`))))
+        .when(this.showDrawer, (el) => el.child(
+          v_flex().mt(4).p(8).gap(6).rounded(8).border_1().border_color(t.border).bg(t.raised + "44")
+            .child(h_flex().gap(6).items_center()
+              .child(div().w(60).text_size(11).text_color(t.dim).child("Card:"))
+              .child(Input.new(this.groupInput).flex_1().h(24).px(7).rounded(5).border_1().border_color(t.border).bg(t.background).text_size(11.5).text_color(t.foreground)))
+            .child(h_flex().gap(6).items_center()
+              .child(div().w(60).text_size(11).text_color(t.dim).child("Desc:"))
+              .child(Input.new(this.descInput).flex_1().h(24).px(7).rounded(5).border_1().border_color(t.border).bg(t.background).text_size(11.5).text_color(t.foreground)))
+            .child(h_flex().gap(6).items_center()
+              .child(div().w(60).text_size(11).text_color(t.dim).child("URL:"))
+              .child(Input.new(this.urlNameInput).w(90).h(24).px(6).rounded(5).border_1().border_color(t.border).bg(t.background).text_size(11.5).text_color(t.foreground))
+              .child(Input.new(this.urlLinkInput).flex_1().h(24).px(6).rounded(5).border_1().border_color(t.border).bg(t.background).text_size(11.5).text_color(t.foreground))
+              .child(div().id("btn-add-url").h(24).px(8).rounded(5).bg(t.raised).border_1().border_color(t.border).cursor_pointer()
+                .hover((st) => st.bg(t.hover).border_color(t.accent)).flex().items_center().justify_center()
+                .on_click((_e, cx) => this.addPendingUrl(cx))
+                .child(div().text_size(11).text_color(t.accent).child("+ Link"))))
+            .when(this.pendingUrls.length > 0, (b) => b.child(
+              h_flex().gap(4).flex_wrap().ml(66).children(this.pendingUrls.map((u, ui) =>
+                h_flex().px(6).py(1).rounded(4).bg(t.raised).border_1().border_color(t.border).gap(4).items_center()
+                  .child(svg("mods/todos/link.svg").size(9).text_color(t.ansi4))
+                  .child(div().text_size(10.5).text_color(t.foreground).child(u.name))
+                  .child(div().size(12).cursor_pointer().flex().items_center().justify_center().hover((st) => st.text_color(t.ansi1))
+                    .on_click((_e, cx) => this.removePendingUrl(ui, cx))
+                    .child(svg("mods/workspace-chrome/x.svg").size(8).text_color(t.muted)))))))
+            .child(h_flex().gap(6).items_center()
+              .child(div().w(60).text_size(11).text_color(t.dim).child("Subtask:"))
+              .child(Input.new(this.subDraftInput).flex_1().h(24).px(6).rounded(5).border_1().border_color(t.border).bg(t.background).text_size(11.5).text_color(t.foreground))
+              .child(div().id("btn-add-sub").h(24).px(8).rounded(5).bg(t.raised).border_1().border_color(t.border).cursor_pointer()
+                .hover((st) => st.bg(t.hover).border_color(t.accent)).flex().items_center().justify_center()
+                .on_click((_e, cx) => this.addPendingSub(cx))
+                .child(div().text_size(11).text_color(t.ansi2).child("+ Step"))))
+            .when(this.pendingSubs.length > 0, (b) => b.child(
+              h_flex().gap(4).flex_wrap().ml(66).children(this.pendingSubs.map((st, si) =>
+                h_flex().px(6).py(1).rounded(4).bg(t.raised).border_1().border_color(t.border).gap(4).items_center()
+                  .child(div().size(6).rounded(3).bg(t.ansi2))
+                  .child(div().text_size(10.5).text_color(t.foreground).child(st))
+                  .child(div().size(12).cursor_pointer().flex().items_center().justify_center().hover((s) => s.text_color(t.ansi1))
+                    .on_click((_e, cx) => this.removePendingSub(si, cx))
+                    .child(svg("mods/workspace-chrome/x.svg").size(8).text_color(t.muted)))))))
+        ))
         .when(this.sugs.length > 0, (el) => el.child(v_flex().mt(3).p(3).rounded(7).border_1().border_color(t.border).bg(t.popover)
           .children(this.sugs.map((g, i) => h_flex().id(`sug-${i}`).h(26).px(7).gap(7).items_center().rounded(5).cursor_pointer().text_size(12.5)
             .when(i === this.sugAt, (el) => el.bg(t.selected)).hover((x) => x.bg(t.hover))
