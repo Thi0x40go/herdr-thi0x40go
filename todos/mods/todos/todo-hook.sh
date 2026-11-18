@@ -1,10 +1,15 @@
 #!/bin/sh
-# Claude Code's UserPromptSubmit hook (Over9k): while this project's request
-# logging is on (`todo log`; the To-do panel's Log switch), a note with each
-# message to put what it asks for on its to-do list. Says nothing outside a git
-# repo, when logging is off there, or when the To-do rule isn't installed
-# (Options › To-do off).
-grep -q '<!-- over9k:todo -->' "$HOME/.claude/CLAUDE.md" 2>/dev/null || exit 0
+# UserPromptSubmit hook for coding agents (Claude Code, Kiro, Antigravity):
+# while this project's request logging is on (`todo log`; the To-do panel's Log switch),
+# injects a note with each message reminding the agent to update its to-do list.
+rule_ok=false
+for r in "$HOME/.claude/CLAUDE.md" "$HOME/.kiro/steering/todo.md" "$HOME/.gemini/GEMINI.md" "$HOME/.codex/AGENTS.md" "$HOME/.pi/agent/AGENTS.md"; do
+  if grep -q '<!-- over9k:todo -->' "$r" 2>/dev/null; then
+    rule_ok=true
+    break
+  fi
+done
+[ "$rule_ok" = true ] || exit 0
 git rev-parse --is-inside-work-tree >/dev/null 2>&1 || exit 0
 # todo.sh sits next to this file (the hook runs it by its full path).
 t="$(dirname "$0")/todo.sh"

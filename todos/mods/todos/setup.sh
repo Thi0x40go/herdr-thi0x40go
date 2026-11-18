@@ -103,6 +103,33 @@ case "$cmd" in
       fi
     elif ours; then rm -f "$w"; fi
     command -v jq >/dev/null 2>&1 && hook "$on" UserPromptSubmit todos/todo-hook.sh "sh \"$mods/todos/todo-hook.sh\""
+    # Kiro hook and skill integration
+    if [ -d "$HOME/.kiro" ]; then
+      if [ "$on" = on ]; then
+        mkdir -p "$HOME/.kiro/hooks" "$HOME/.kiro/skills/herdr-todos" "$HOME/.kiro/steering"
+        cat <<EOF > "$HOME/.kiro/hooks/todo.json"
+{
+  "version": "v1",
+  "hooks": [
+    {
+      "name": "herdr-todo-prompt-submit",
+      "trigger": "UserPromptSubmit",
+      "action": {
+        "type": "command",
+        "command": "sh $mods/todos/todo-hook.sh"
+      },
+      "timeout": 2,
+      "enabled": true
+    }
+  ]
+}
+EOF
+        [ -f "$mods/todos/SKILL.md" ] && cp "$mods/todos/SKILL.md" "$HOME/.kiro/skills/herdr-todos/SKILL.md"
+      else
+        rm -f "$HOME/.kiro/hooks/todo.json" "$HOME/.kiro/skills/herdr-todos/SKILL.md"
+        rmdir "$HOME/.kiro/skills/herdr-todos" 2>/dev/null || true
+      fi
+    fi
     exit 0 ;;
   default)
     k=$on v=${3:-}

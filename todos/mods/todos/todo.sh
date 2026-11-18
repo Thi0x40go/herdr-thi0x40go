@@ -27,7 +27,10 @@ if [ "${1:-}" = --rule ]; then
       tmp="$f.over9k.$$"
       sed '/<!-- over9k:todo -->/,/<!-- \/over9k:todo -->/d' "$f" | awk 'NF { for (; n > 0; n--) print ""; print; next } { n++ }' > "$tmp" && mv "$tmp" "$f"
     fi
-    [ "${2:-}" = on ] && { [ -s "$f" ] && printf '\n'; cat <<'EOF'
+    [ "${2:-}" = on ] && {
+      [ -s "$f" ] && printf '\n'
+      [ "$f" = "$HOME/.kiro/steering/todo.md" ] && printf -- '---\ninclusion: always\n---\n'
+      cat <<'EOF'
 <!-- over9k:todo -->
 ## Project to-do lists (Herdr)
 
