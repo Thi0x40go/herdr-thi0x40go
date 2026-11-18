@@ -27,14 +27,14 @@ RE_DESC_START = re.compile(r"^(\s*)<!--\s*desc:\s*$")
 RE_DESC_END = re.compile(r"^(\s*)-->$")
 RE_TAG = re.compile(r"(?:^|\s)#([a-zA-Z0-9_-]+)")
 RE_CARD = re.compile(r"\b(CARD-[0-9]+|TASK-[0-9]+)\b", re.IGNORECASE)
-RE_PRIO = re.compile(r"(?:^|\s)!(p0|p1|p2|p3|high|med|medium|low|urgent)\b", re.IGNORECASE)
+RE_PRIO = re.compile(r"(?:^|\s)!(critical|high|medium|med|low|urgent|crit|p0|p1|p2|p3)\b", re.IGNORECASE)
 RE_ASSIGNEE = re.compile(r"(?:^|\s)@([a-zA-Z0-9_-]+)\b")
 
 PRIORITY_MAP = {
-    "p0": "P0", "urgent": "P0",
-    "p1": "P1", "high": "P1",
-    "p2": "P2", "med": "P2", "medium": "P2",
-    "p3": "P3", "low": "P3"
+    "p0": "Critical", "urgent": "Critical", "critical": "Critical", "crit": "Critical",
+    "p1": "High", "high": "High",
+    "p2": "Medium", "medium": "Medium", "med": "Medium",
+    "p3": "Low", "low": "Low"
 }
 
 # ANSI Colors for terminal output
@@ -53,16 +53,16 @@ CLR_MAGENTA = "\033[0;35m" if USE_COLOR else ""
 def format_priority(prio):
     if not prio:
         return ""
-    p = prio.upper()
-    if p == "P0":
-        return f"{CLR_RED}[P0]{CLR_RESET}"
-    elif p == "P1":
-        return f"{CLR_YELLOW}[P1]{CLR_RESET}"
-    elif p == "P2":
-        return f"{CLR_BLUE}[P2]{CLR_RESET}"
-    else:
-        return f"{CLR_GRAY}[P3]{CLR_RESET}"
-
+    p = str(prio).strip().capitalize()
+    if p in ("Critical", "P0"):
+        return f"{CLR_RED}[Critical]{CLR_RESET}"
+    elif p in ("High", "P1"):
+        return f"{CLR_YELLOW}[High]{CLR_RESET}"
+    elif p in ("Medium", "P2"):
+        return f"{CLR_BLUE}[Medium]{CLR_RESET}"
+    elif p in ("Low", "P3"):
+        return f"{CLR_GRAY}[Low]{CLR_RESET}"
+    return f"{CLR_DIM}[{prio}]{CLR_RESET}"
 class Task:
     def __init__(self, raw_text="", status="todo", indent=0):
         self.raw_text = raw_text
@@ -111,7 +111,9 @@ class Task:
                     else:
                         meta[k] = v
             self.group = meta.get("group") or self.group
-            self.priority = meta.get("priority") or self.priority
+            raw_p = meta.get("priority") or self.priority
+            if raw_p:
+                self.priority = PRIORITY_MAP.get(str(raw_p).lower(), str(raw_p).capitalize())
             self.tags = meta.get("tags") or self.tags
             self.assignee = meta.get("assignee") or self.assignee
             if "urls" in meta:
@@ -452,7 +454,7 @@ def cmd_add(args):
     if args.group:
         t.group = args.group.upper()
     if args.priority:
-        t.priority = PRIORITY_MAP.get(args.priority.lower(), args.priority.upper())
+        t.priority = PRIORITY_MAP.get(args.priority.lower(), args.priority.capitalize())
     if args.tags:
         for tg in args.tags.split(","):
             tg = tg.strip().lstrip("#")

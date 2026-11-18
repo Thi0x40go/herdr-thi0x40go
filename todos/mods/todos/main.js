@@ -103,7 +103,15 @@ function hue(name) {
   return MARK[keys[h % keys.length]];
 }
 
-const prioCol = (p) => (p === "P0" ? "#f36458" : p === "P1" ? "#e3814f" : p === "P2" ? "#0052ef" : "#797979");
+const prioCol = (p) => {
+  if (!p) return "#797979";
+  const norm = String(p).toLowerCase();
+  if (norm === "critical" || norm === "p0" || norm === "urgent") return "#f36458";
+  if (norm === "high" || norm === "p1") return "#f59e0b";
+  if (norm === "medium" || norm === "p2" || norm === "med") return "#0052ef";
+  if (norm === "low" || norm === "p3") return "#797979";
+  return "#797979";
+};
 
 const pad = (n) => String(n).padStart(2, "0");
 const dayKey = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
@@ -169,11 +177,21 @@ function parseLine(text) {
     if (cardM) group = cardM[1].toUpperCase();
   }
   let priority = meta?.priority ?? null;
+  if (priority) {
+    const norm = String(priority).toLowerCase();
+    if (norm === "p0" || norm === "urgent" || norm === "critical" || norm === "crit") priority = "Critical";
+    else if (norm === "p1" || norm === "high") priority = "High";
+    else if (norm === "p2" || norm === "medium" || norm === "med") priority = "Medium";
+    else if (norm === "p3" || norm === "low") priority = "Low";
+  }
   if (!priority) {
-    const prioM = /(?:^|\s)!(p[0-3]|urgent|high|med|low)\b/i.exec(clean);
+    const prioM = /(?:^|\s)!(critical|high|medium|med|low|urgent|crit|p0|p1|p2|p3)\b/i.exec(clean);
     if (prioM) {
       const p = prioM[1].toLowerCase();
-      priority = (p === "p0" || p === "urgent") ? "P0" : (p === "p1" || p === "high") ? "P1" : (p === "p2" || p === "med") ? "P2" : "P3";
+      priority = (p === "p0" || p === "urgent" || p === "critical" || p === "crit") ? "Critical"
+               : (p === "p1" || p === "high") ? "High"
+               : (p === "p2" || p === "med" || p === "medium") ? "Medium"
+               : "Low";
     }
   }
 
@@ -619,7 +637,7 @@ export default class Todos extends View {
   }
 
   cyclePrio(cx) {
-    const seq = [null, "P0", "P1", "P2", "P3"];
+    const seq = [null, "Critical", "High", "Medium", "Low"];
     const idx = seq.indexOf(this.createPrio);
     this.createPrio = seq[(idx + 1) % seq.length];
     cx.notify();
@@ -676,10 +694,15 @@ export default class Todos extends View {
   cycleTaskPrio(key, cx) {
     const [slug, iStr] = key.split(":");
     const idx = Number(iStr);
-    const seq = [null, "P0", "P1", "P2", "P3"];
+    const seq = [null, "Critical", "High", "Medium", "Low"];
     this.change(slug, (items) => items.map((it, j) => {
       if (j === idx) {
-        const curIdx = seq.indexOf(it.priority ?? null);
+        let cur = it.priority ?? null;
+        if (cur === "P0") cur = "Critical";
+        else if (cur === "P1") cur = "High";
+        else if (cur === "P2") cur = "Medium";
+        else if (cur === "P3") cur = "Low";
+        const curIdx = seq.indexOf(cur);
         const next = seq[(curIdx + 1) % seq.length];
         const meta = { ...(it.meta ?? {}), priority: next };
         return { ...it, priority: next, meta };
@@ -1077,10 +1100,13 @@ export default class Todos extends View {
     if (!folder) return;
 
     let priority = this.createPrio;
-    const prioM = /(?:^|\s)!(p[0-3]|urgent|high|med|low)\b/i.exec(text);
+    const prioM = /(?:^|\s)!(critical|high|medium|med|low|urgent|crit|p0|p1|p2|p3)\b/i.exec(text);
     if (prioM) {
       const p = prioM[1].toLowerCase();
-      priority = (p === "p0" || p === "urgent") ? "P0" : (p === "p1" || p === "high") ? "P1" : (p === "p2" || p === "med") ? "P2" : "P3";
+      priority = (p === "p0" || p === "urgent" || p === "critical" || p === "crit") ? "Critical"
+               : (p === "p1" || p === "high") ? "High"
+               : (p === "p2" || p === "med" || p === "medium") ? "Medium"
+               : "Low";
       text = (text.slice(0, prioM.index) + text.slice(prioM.index + prioM[0].length)).replace(/\s+/g, " ").trim();
     }
 
@@ -1499,31 +1525,7 @@ export default class Todos extends View {
             .child(div().size(20).cursor_pointer().flex().items_center().justify_center()
               .on_click((_e, cx) => { this.subFor = null; cx.notify(); })
               .child(svg("mods/workspace-chrome/x.svg").size(10).text_color(t.muted)))
-        ))
-        // Bottom action buttons bar
-        .child(h_flex().gap(8).items_center().flex_wrap().pt(2)
-          .child(h_flex().id(`addsub-${key}`).h(22).px(7).gap(4).items_center().rounded(9999).cursor_pointer().text_size(11).text_color(t.muted)
-            .border_1().border_color(t.border).bg(t.raised + "44")
-            .hover((st) => st.bg(t.hover).text_color(t.foreground))
-            .on_click((_e, cx) => { this.subFor = key; this.subInput.set_value(""); this.subInput.focus(); cx.notify(); })
-            .child(div().child("+ Subtask")))
-          .child(h_flex().id(`addlink-${key}`).h(22).px(7).gap(4).items_center().rounded(9999).cursor_pointer().text_size(11).text_color(t.muted)
-            .border_1().border_color(t.border).bg(t.raised + "44")
-            .hover((st) => st.bg(t.hover).text_color(t.foreground))
-            .on_click((_e, cx) => { this.linkFor = key; this.linkNameInput.set_value(""); this.linkUrlInput.set_value(""); cx.notify(); })
-            .child(div().child("+ Link")))
-          .child(h_flex().id(`addtag-${key}`).h(22).px(7).gap(4).items_center().rounded(9999).cursor_pointer().text_size(11).text_color(t.muted)
-            .border_1().border_color(t.border).bg(t.raised + "44")
-            .hover((st) => st.bg(t.hover).text_color(t.foreground))
-            .on_click((_e, cx) => { this.tagFor = key; this.tagInput.set_value(""); cx.notify(); })
-            .child(div().child("+ Tag")))
-          .when(!x.description, (b) => b.child(
-            h_flex().id(`adddesc-${key}`).h(22).px(7).gap(4).items_center().rounded(9999).cursor_pointer().text_size(11).text_color(t.muted)
-              .border_1().border_color(t.border).bg(t.raised + "44")
-              .hover((st) => st.bg(t.hover).text_color(t.foreground))
-              .on_click((_e, cx) => { this.descFor = key; this.taskDescInput.set_value(""); cx.notify(); })
-              .child(div().child("+ Description"))))
-        );
+        ));
     };
     const withStarter = (x) => {
       const key = `${x.slug}:${x.i}`;
@@ -1589,7 +1591,7 @@ export default class Todos extends View {
             .hover((st) => st.bg(t.hover))
             .on_click((_e, cx) => this.cyclePrio(cx))
             .child(div().text_size(10.5).font_semibold().text_color(this.createPrio ? prioCol(this.createPrio) : t.muted)
-              .child(this.createPrio ? `Prio: ${this.createPrio}` : "Priority")))
+              .child(this.createPrio ? `${this.createPrio}` : "Priority")))
           .child(h_flex().id("opt-group").h(22).px(7).gap(4).items_center().rounded(9999).cursor_pointer()
             .border_1().border_color(this.createGroup ? t.ansi6 : t.border)
             .bg(this.createGroup ? t.ansi6 + "22" : t.raised + "44")
