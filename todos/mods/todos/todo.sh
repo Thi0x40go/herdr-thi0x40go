@@ -1,27 +1,31 @@
 #!/bin/sh
-# Per-project to-do lists, shared by people and agents (Over9k's To-do panel,
+# Per-project to-do lists, shared by people and agents (Herdr's To-do panel,
 # mods/todos, shows and edits the same files).
-#   todo                     this project's list, numbered
+#   todo                     this project's list, numbered (supports -g, -t, --prio, -s)
 #   todo all                 every project's
-#   todo add <text…>         add to this project's (--due "YYYY-MM-DD[ HH:MM]" first sets when)
-#   todo done|undo <n|text>  tick or untick item n (or the one with that exact text)
-#   todo edit <n|text> <new…> reword item n (its due and tick stay)
-#   todo rm <n>              delete item n
+#   todo show <n>            show details, description and subtasks
+#   todo add <text…>         add to this project's (--due, -g, --prio, --tags, --desc)
+#   todo sub <parent> <text> add a subtask to parent item
+#   todo done|undo <n|p.s>   tick or untick item n or subtask p.s
+#   todo edit <n|p.s> <new…> reword item n or subtask p.s
+#   todo desc <n> <text…>    add or update markdown description
+#   todo rm <n|p.s>          delete item n or subtask p.s
 #   todo clear               delete the ticked ones
+#   todo json                export project to-dos as JSON
 #   todo log [on|off]        this project: agents add what you ask for (default: Options › To-do)
 #   todo sync [on|off]       this project: its TODO.md follows add/edit/rm (default: Options › To-do)
-#   todo --rule on|off       add or remove the agents' to-do rule (CLAUDE.md, AGENTS.md)
+#   todo --rule on|off       add or remove the agents' to-do rule
 # -p <folder> (first) picks the project; otherwise it's the git repo this runs in
 # (its main checkout for a worktree), else this folder.
-# Each list is ~/.local/share/over9k/todos/<slug>.md (DIR): a "<!-- folder: … -->"
+# Each list is ~/.local/share/herdr/todos/<slug>.md (DIR): a "<!-- folder: … -->"
 # line, then "- [ ] text" / "- [x] text" lines (fine to edit by hand).
-# Installed by Over9k's Options › To-do (or install.sh) as ~/.local/bin/todo, a
-# small wrapper that runs this file (todo-cross.py is found next to it).
+# Installed by Herdr's Options › To-do (or install.sh) as ~/.local/bin/todo, a
+# small wrapper that runs this file.
 set -e
 # The agents' rule (Options › To-do turns it on and off), between markers so it
 # can be taken out again exactly: in CLAUDE.md, Codex's and Pi's AGENTS.md.
 if [ "${1:-}" = --rule ]; then
-  for f in "$HOME/.claude/CLAUDE.md" "$HOME/.codex/AGENTS.md" "$HOME/.pi/agent/AGENTS.md" "$HOME/.gemini/GEMINI.md" "$HOME/.kiro/steering/todo.md"; do
+  for f in "$HOME/.claude/CLAUDE.md" "$HOME/.codex/AGENTS.md" "$HOME/.pi/agent/AGENTS.md" "$HOME/.gemini/GEMINI.md" "$HOME/.kiro/steering/todo.md" "$HOME/.kiro/AGENTS.md"; do
     [ -d "$(dirname "$f")" ] || continue
     if [ -f "$f" ]; then
       tmp="$f.herdr.$$"
@@ -62,7 +66,8 @@ DIR="${XDG_DATA_HOME:-$HOME/.local/share}/herdr/todos"
 # This script's own folder, through a symlink (todo-cross.py lives there).
 SELF=$(readlink -f "$0" 2>/dev/null || printf %s "$0")
 HERE=$(dirname "$SELF")
-# Python 3 for todo-cross.py: python3, else python (as on Windows); none: no TODO.md sync.
+ENGINE="$HERE/todo_engine.py"
+# Python 3 for todo-cross.py and todo_engine.py: python3, else python (as on Windows).
 PY=$(command -v python3 2>/dev/null || command -v python 2>/dev/null || true)
 dir=$DIR
 mkdir -p "$dir"
@@ -108,47 +113,139 @@ edit() {
 }
 
 cmd=${1:-list}; [ $# -gt 0 ] && shift
+
+# Handle filter flags passed directly as `todo -g ...`
 case "$cmd" in
-  list|ls) [ -n "$(items "$file")" ] && show "$file" || echo "No to-dos for $folder" ;;
+  -g|--group|-t|--tag|--prio|--priority|-s|--sub|-v|--verbose)
+    if [ -n "$PY" ] && [ -f "$ENGINE" ]; then
+      exec "$PY" "$ENGINE" -p "$folder" list "$cmd" "$@"
+    fi
+    cmd=list
+    ;;
+esac
+
+case "$cmd" in
+  list|ls)
+    if [ -n "$PY" ] && [ -f "$ENGINE" ]; then
+      exec "$PY" "$ENGINE" -p "$folder" list "$@"
+    fi
+    [ -n "$(items "$file")" ] && show "$file" || echo "No to-dos for $folder"
+    ;;
+  show)
+    if [ -n "$PY" ] && [ -f "$ENGINE" ]; then
+      exec "$PY" "$ENGINE" -p "$folder" show "$@"
+    else
+      echo "todo show requires Python 3" >&2
+      exit 1
+    fi
+    ;;
+  sub)
+    if [ -n "$PY" ] && [ -f "$ENGINE" ]; then
+      exec "$PY" "$ENGINE" -p "$folder" sub "$@"
+    else
+      echo "todo sub requires Python 3" >&2
+      exit 1
+    fi
+    ;;
+  desc)
+    if [ -n "$PY" ] && [ -f "$ENGINE" ]; then
+      exec "$PY" "$ENGINE" -p "$folder" desc "$@"
+    else
+      echo "todo desc requires Python 3" >&2
+      exit 1
+    fi
+    ;;
+  json)
+    if [ -n "$PY" ] && [ -f "$ENGINE" ]; then
+      exec "$PY" "$ENGINE" -p "$folder" json "$@"
+    else
+      echo "todo json requires Python 3" >&2
+      exit 1
+    fi
+    ;;
   all)
     for f in "$dir"/*.md; do
       [ -f "$f" ] && [ -n "$(items "$f")" ] || continue
-      printf '%s\n' "$(sed -n 's/^<!-- folder: \(.*\) -->$/\1/p' "$f" | head -n 1 | sed "s#^$HOME#~#")"; show "$f"
-    done ;;
+      proj=$(sed -n 's/^<!-- folder: \(.*\) -->$/\1/p' "$f" | head -n 1)
+      printf '%s\n' "$(printf '%s' "$proj" | sed "s#^$HOME#~#")"
+      if [ -n "$PY" ] && [ -f "$ENGINE" ]; then
+        "$PY" "$ENGINE" -p "$proj" list
+      else
+        show "$f"
+      fi
+    done
+    ;;
   add)
+    # Check if extended options are used or route through engine
+    has_ext=0
+    for arg in "$@"; do
+      case "$arg" in
+        -g|--group|--prio|--priority|--tags|--assignee|--desc) has_ext=1; break ;;
+      esac
+    done
+    if [ "$has_ext" = 1 ] && [ -n "$PY" ] && [ -f "$ENGINE" ]; then
+      exec "$PY" "$ENGINE" -p "$folder" add "$@"
+    fi
     due=""; if [ "$1" = "--due" ]; then due=$2; shift 2; fi
     text=$(printf '%s' "$*" | tr '\n' ' ' | sed 's/  *$//')
     [ -n "$text" ] || { echo "usage: todo add <text>" >&2; exit 2; }
     [ -f "$file" ] || printf '<!-- folder: %s -->\n' "$folder" > "$file"
     printf -- '- [ ] %s%s\n' "$text" "${due:+ <!-- due: $due -->}" >> "$file"
     md add "$text"
-    echo "Added to $(printf %s "$folder" | sed "s#^$HOME#~#"): $text" ;;
-  # Also crossed out (or back in) in the project's own TODO.md, if it lists it.
-  done|check|undo|uncheck)
+    echo "Added to $(printf %s "$folder" | sed "s#^$HOME#~#"): $text"
+    ;;
+  done|check)
     n=${1:?item number or text}
-    # The item's text works too: its number, from an exact match.
+    case "$n" in
+      *.*)
+        if [ -n "$PY" ] && [ -f "$ENGINE" ]; then
+          exec "$PY" "$ENGINE" -p "$folder" done "$@"
+        fi
+        ;;
+    esac
     case "$n" in *[!0-9]*) m=$(grep -E '^- \[( |x)\] ' "$file" 2>/dev/null | sed 's/^- \[.\] //; s/ *<!--[^>]*-->//g' | grep -n -x -F -- "$n" | head -n 1 | cut -d: -f1)
       [ -n "$m" ] || { echo "No item \"$n\"" >&2; exit 1; }; n=$m ;; esac
     text=$(grep -E '^- \[( |x)\] ' "$file" 2>/dev/null | sed -n "${n}p" | sed 's/^- \[.\] //; s/ *<!--[^>]*-->//g')
-    case "$cmd" in done|check) way=done ;; *) way=undo ;; esac
-    "$0" -p "$folder" "_$way" "$n"
-    [ -n "$text" ] && { [ -n "$PY" ] && "$PY" -I "$HERE/todo-cross.py" "$folder" "$way" "$text" 2>/dev/null; } || true ;;
+    "$0" -p "$folder" "_done" "$n"
+    [ -n "$text" ] && { [ -n "$PY" ] && "$PY" -I "$HERE/todo-cross.py" "$folder" "done" "$text" 2>/dev/null; } || true
+    ;;
+  undo|uncheck)
+    n=${1:?item number or text}
+    case "$n" in
+      *.*)
+        if [ -n "$PY" ] && [ -f "$ENGINE" ]; then
+          exec "$PY" "$ENGINE" -p "$folder" undo "$@"
+        fi
+        ;;
+    esac
+    case "$n" in *[!0-9]*) m=$(grep -E '^- \[( |x)\] ' "$file" 2>/dev/null | sed 's/^- \[.\] //; s/ *<!--[^>]*-->//g' | grep -n -x -F -- "$n" | head -n 1 | cut -d: -f1)
+      [ -n "$m" ] || { echo "No item \"$n\"" >&2; exit 1; }; n=$m ;; esac
+    text=$(grep -E '^- \[( |x)\] ' "$file" 2>/dev/null | sed -n "${n}p" | sed 's/^- \[.\] //; s/ *<!--[^>]*-->//g')
+    "$0" -p "$folder" "_undo" "$n"
+    [ -n "$text" ] && { [ -n "$PY" ] && "$PY" -I "$HERE/todo-cross.py" "$folder" "undo" "$text" 2>/dev/null; } || true
+    ;;
   _done) edit "${1:?item number}" "s/^- \\[ \\] \\(.*\\)\$/- [x] \\1 <!-- done: $(date '+%F %H:%M') -->/" ;;
   _undo) edit "${1:?item number}" 's/^- \[x\] /- [ ] /; s/ *<!-- done: [^>]* -->//' ;;
   edit|reword)
     n=${1:?item number or text}; shift
+    case "$n" in
+      *.*)
+        if [ -n "$PY" ] && [ -f "$ENGINE" ]; then
+          exec "$PY" "$ENGINE" -p "$folder" edit "$n" "$@"
+        fi
+        ;;
+    esac
     new=$(printf '%s' "$*" | tr '\n' ' ' | sed 's/  *$//')
     [ -n "$new" ] || { echo "usage: todo edit <n|text> <new text>" >&2; exit 2; }
     case "$n" in *[!0-9]*) m=$(grep -E '^- \[( |x)\] ' "$file" 2>/dev/null | sed 's/^- \[.\] //; s/ *<!--[^>]*-->//g' | grep -n -x -F -- "$n" | head -n 1 | cut -d: -f1)
       [ -n "$m" ] || { echo "No item \"$n\"" >&2; exit 1; }; n=$m ;; esac
     old=$(grep -E '^- \[( |x)\] ' "$file" 2>/dev/null | sed -n "${n}p" | sed 's/^- \[.\] //; s/ *<!--[^>]*-->//g')
     [ -n "$old" ] || { echo "No item $n" >&2; exit 1; }
-    # The new text, safe for sed's replacement (\, & and the | delimiter).
     esc=$(printf '%s' "$new" | sed 's/[\\&|]/\\&/g')
     edit "$n" "s|^\(- \[.\] \)[^<]*\(<!--.*\)\{0,1\}\$|\1$esc \2|; s| *\$||"
     md rename "$old" "$new"
-    echo "Now: $new" ;;
-  # A project switch: "<!-- log|sync: on|off -->" under the folder line.
+    echo "Now: $new"
+    ;;
   log|sync)
     case "${1:-}" in on|off) want="<!-- $cmd: $1 -->" ;; "") want=keep ;; *) echo "usage: todo $cmd [on|off]" >&2; exit 2 ;; esac
     if [ "$want" != keep ]; then
@@ -156,11 +253,26 @@ case "$cmd" in
       grep -v "^<!-- $cmd: [a-z]* -->\$" "$file" | awk -v w="$want" '{ print } NR == 1 && w != "" { print w }' > "$file.tmp" && mv "$file.tmp" "$file"
     fi
     if [ "$cmd" = log ]; then opt log && echo "Request logging: on" || echo "Request logging: off"
-    else opt sync && echo "TODO.md sync: on" || echo "TODO.md sync: off"; fi ;;
+    else opt sync && echo "TODO.md sync: on" || echo "TODO.md sync: off"; fi
+    ;;
   rm|delete)
-    text=$(grep -E '^- \[( |x)\] ' "$file" 2>/dev/null | sed -n "${1:?item number}p" | sed 's/^- \[.\] //; s/ *<!--[^>]*-->//g')
-    edit "$1" 'd'
-    [ -n "$text" ] && md rm "$text" ;;
-  clear) [ -f "$file" ] && { grep -v -E '^- \[x\] ' "$file" > "$file.tmp"; mv "$file.tmp" "$file"; } ;;
-  *) sed -n '2,12s/^# \{0,1\}//p' "$SELF"; exit 2 ;;
+    n=${1:?item number}
+    case "$n" in
+      *.*)
+        if [ -n "$PY" ] && [ -f "$ENGINE" ]; then
+          exec "$PY" "$ENGINE" -p "$folder" rm "$@"
+        fi
+        ;;
+    esac
+    text=$(grep -E '^- \[( |x)\] ' "$file" 2>/dev/null | sed -n "${n}p" | sed 's/^- \[.\] //; s/ *<!--[^>]*-->//g')
+    edit "$n" 'd'
+    [ -n "$text" ] && md rm "$text"
+    ;;
+  clear)
+    if [ -n "$PY" ] && [ -f "$ENGINE" ]; then
+      exec "$PY" "$ENGINE" -p "$folder" clear
+    fi
+    [ -f "$file" ] && { grep -v -E '^- \[x\] ' "$file" > "$file.tmp"; mv "$file.tmp" "$file"; }
+    ;;
+  *) sed -n '2,17s/^# \{0,1\}//p' "$SELF"; exit 2 ;;
 esac

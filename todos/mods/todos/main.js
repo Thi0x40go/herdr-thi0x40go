@@ -155,19 +155,92 @@ function readDayMonth(word) {
 function parseLine(text) {
   const due = /<!-- due: ([^>]*?) -->/.exec(text)?.[1] ?? null;
   const done = /<!-- done: ([^>]*?) -->/.exec(text)?.[1] ?? null;
-  return { text: text.replace(/\s*<!--[^>]*-->/g, "").trim(), due, doneOn: done };
+  let meta = null;
+  const metaM = /<!-- meta: (\{.*?\}) -->/.exec(text);
+  if (metaM) {
+    try { meta = JSON.parse(metaM[1]); } catch { meta = null; }
+  }
+  const clean = text.replace(/\s*<!--[^>]*-->/g, "").trim();
+  let group = meta?.group ?? null;
+  if (!group) {
+    const cardM = /\b(CARD-[0-9]+|TASK-[0-9]+)\b/i.exec(clean);
+    if (cardM) group = cardM[1].toUpperCase();
+  }
+  let priority = meta?.priority ?? null;
+  if (!priority) {
+    const prioM = /(?:^|\s)!(p[0-3]|urgent|high|med|low)\b/i.exec(clean);
+    if (prioM) {
+      const p = prioM[1].toLowerCase();
+      priority = (p === "p0" || p === "urgent") ? "P0" : (p === "p1" || p === "high") ? "P1" : (p === "p2" || p === "med") ? "P2" : "P3";
+    }
+  }
+  return { text: clean, due, doneOn: done, group, priority, meta: meta ?? ((group || priority) ? { group, priority } : null) };
 }
 // "<!-- skip: text -->" lines: TODO.md items hidden from the suggestions.
 function parse(raw) {
   const folder = /^<!-- folder: (.*) -->$/m.exec(raw ?? "")?.[1] ?? null;
-  const items = (raw ?? "").split("\n").map((l) => ITEM.exec(l)).filter(Boolean).map((m) => ({ done: m[1] === "x", ...parseLine(m[2]) }));
   const skipped = [...(raw ?? "").matchAll(/^<!-- skip: (.*) -->$/gm)].map((m) => m[1]);
   // "<!-- log: on|off -->" / "<!-- sync: on|off -->" when set, else the default.
   const d = defOpts(), log = /^<!-- log: (on|off) -->$/m.exec(raw ?? "")?.[1], sync = /^<!-- sync: (on|off) -->$/m.exec(raw ?? "")?.[1];
   const opts = { log: log ? log === "on" : d.log, sync: sync ? sync === "on" : d.sync, set: { log: Boolean(log), sync: Boolean(sync) } };
+
+  const lines = (raw ?? "").split("\n");
+  const items = [];
+  let cur = null;
+  let inDesc = false;
+  let descLines = [];
+
+  for (const l of lines) {
+    if (inDesc) {
+      if (/^\s*-->$/.test(l)) {
+        inDesc = false;
+        if (cur) cur.description = descLines.join("\n");
+        descLines = [];
+      } else {
+        descLines.push(l.trim());
+      }
+      continue;
+    }
+    if (/^\s*<!--\s*desc:/.test(l)) {
+      inDesc = true;
+      descLines = [];
+      continue;
+    }
+    const mTop = /^-\s*\[([ xX~-])\]\s*(.*)$/.exec(l);
+    if (mTop) {
+      cur = { done: mTop[1] === "x" || mTop[1] === "X", subtasks: [], description: "", ...parseLine(mTop[2]) };
+      items.push(cur);
+      continue;
+    }
+    const mSub = /^\s{2,}-\s*\[([ xX~-])\]\s*(.*)$/.exec(l);
+    if (mSub && cur) {
+      const parsedSub = parseLine(mSub[2]);
+      cur.subtasks.push({ done: mSub[1] === "x" || mSub[1] === "X", text: parsedSub.text, doneOn: parsedSub.doneOn });
+      continue;
+    }
+  }
+
   return { folder, items, skipped, opts };
 }
-const line = (i) => `- [${i.done ? "x" : " "}] ${i.text.replace(/\n/g, " ")}${i.due ? ` <!-- due: ${i.due} -->` : ""}${i.done && i.doneOn ? ` <!-- done: ${i.doneOn} -->` : ""}`;
+const line = (i) => {
+  const parts = [];
+  const metaStr = i.meta && Object.keys(i.meta).length ? ` <!-- meta: ${JSON.stringify(i.meta)} -->` : "";
+  const dueStr = i.due ? ` <!-- due: ${i.due} -->` : "";
+  const doneStr = i.done && i.doneOn ? ` <!-- done: ${i.doneOn} -->` : "";
+  parts.push(`- [${i.done ? "x" : " "}] ${i.text.replace(/\n/g, " ")}${metaStr}${dueStr}${doneStr}`);
+  if (i.description) {
+    parts.push("  <!-- desc:");
+    for (const dl of i.description.trim().split("\n")) parts.push(`  ${dl}`);
+    parts.push("  -->");
+  }
+  if (i.subtasks?.length) {
+    for (const s of i.subtasks) {
+      const sDone = s.done && s.doneOn ? ` <!-- done: ${s.doneOn} -->` : "";
+      parts.push(`  - [${s.done ? "x" : " "}] ${s.text.replace(/\n/g, " ")}${sDone}`);
+    }
+  }
+  return parts.join("\n");
+};
 const serialize = (folder, items, skipped = [], opts = {}) => `<!-- folder: ${folder} -->\n${opts.set?.log ? `<!-- log: ${opts.log ? "on" : "off"} -->\n` : ""}${opts.set?.sync ? `<!-- sync: ${opts.sync ? "on" : "off"} -->\n` : ""}${skipped.map((x) => `<!-- skip: ${x.replace(/-->/g, "")} -->\n`).join("")}${items.map(line).join("\n")}${items.length ? "\n" : ""}`;
 
 // A project's own to-do file (TODO.md and the like), read, never written: its
@@ -866,6 +939,9 @@ export default class Todos extends View {
       const key = `${x.slug}:${x.i}`, editing = this.editing?.slug === x.slug && this.editing.i === x.i, c = this.color(x.folder, t);
       const on = this.sel.get(key) === x.text, hovered = this.hover === key;
       const meta = x.done ? (x.doneOn ? doneWords(x.doneOn) : "") : x.due ? dueWords(x.due) : "";
+      const prioColor = x.priority === "P0" ? t.ansi1 : x.priority === "P1" ? t.ansi3 : x.priority === "P2" ? t.ansi4 : t.dim;
+      const subDone = x.subtasks?.filter(s => s.done).length ?? 0;
+      const subTotal = x.subtasks?.length ?? 0;
       return h_flex().id(`todo-${key}`).min_h(30).px(8).gap(8).items_center().rounded(8)
         .when(on, (el) => el.bg(t.accent + "38")).hover((s) => s.bg(on ? t.accent + "38" : t.hover))
         .on_click((e, cx) => { if (multi(e) && !editing && this.filter) this.pick(x, e, cx); })
@@ -879,6 +955,8 @@ export default class Todos extends View {
             cross(x.folder, x.done ? "undo" : "done", x.text);
             this.fileAt[x.folder] = 0;
           }))
+        .when(Boolean(x.priority) && !editing, (el) => el.child(div().px(4).py(0.5).rounded(3).border_1().border_color(prioColor + "55").bg(prioColor + "18").text_size(9.5).font_semibold().text_color(prioColor).child(x.priority)))
+        .when(subTotal > 0 && !editing, (el) => el.child(div().px(4).py(0.5).rounded(3).bg(t.raised).text_size(9.5).text_color(subDone === subTotal ? t.ansi2 : t.muted).child(`${subDone}/${subTotal}`)))
         .child(editing
           ? Input.new(this.editInput).flex_1().h(24).px(6).rounded(5).border_1().border_color(t.accent).bg(t.background).text_size(13).text_color(t.foreground)
           : div().id(`text-${key}`).flex_1().min_w(0).text_size(13).line_height("18px").text_color(x.done ? t.dim : t.foreground).when(x.done, (el) => el.line_through())
