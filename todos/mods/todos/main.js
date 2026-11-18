@@ -538,6 +538,35 @@ export default class Todos extends View {
     this.fromFile = {}; // folder -> { file, items }
     this.fileAt = {}; // folder -> when it was last read (ms)
     this.fileStale = {}; // folder -> its list changed since TODO.md was read
+    this.expanded = new Set();
+    this.groupFilter = null;
+    this.subFor = null;
+    this.subInput = InputState.new({ placeholder: "Add a subtask..." });
+    this.subInput.on("submit", (_e, cx) => this.saveSub(cx));
+    this.subInput.on("blur", (_e, cx) => { if (this.subFor) { this.subFor = null; cx.notify(); } });
+  }
+
+  toggleExpand(key, cx) {
+    if (this.expanded.has(key)) this.expanded.delete(key);
+    else this.expanded.add(key);
+    cx.notify();
+  }
+
+  saveSub(cx) {
+    const k = this.subFor;
+    const text = this.subInput.value().trim();
+    if (!k || !text) { this.subFor = null; return cx.notify(); }
+    const [slug, iStr] = k.split(":");
+    const idx = Number(iStr);
+    this.subInput.set_value("");
+    this.subFor = null;
+    this.change(slug, (items) => items.map((it, j) => {
+      if (j === idx) {
+        const subtasks = [...(it.subtasks ?? []), { done: false, text, doneOn: null }];
+        return { ...it, subtasks };
+      }
+      return it;
+    }), cx);
   }
 
   async load(cx) {
@@ -863,12 +892,28 @@ export default class Todos extends View {
     const tag = /(?:^|\s)#([\w.-]+)/.exec(text);
     if (tag) { const f = this.projectFor(tag[1]); if (f) { folder = f; text = (text.slice(0, tag.index) + text.slice(tag.index + tag[0].length)).replace(/\s+/g, " ").trim(); } }
     if (!folder) return;
+
+    let priority = null;
+    const prioM = /(?:^|\s)!(p[0-3]|urgent|high|med|low)\b/i.exec(text);
+    if (prioM) {
+      const p = prioM[1].toLowerCase();
+      priority = (p === "p0" || p === "urgent") ? "P0" : (p === "p1" || p === "high") ? "P1" : (p === "p2" || p === "med") ? "P2" : "P3";
+      text = (text.slice(0, prioM.index) + text.slice(prioM.index + prioM[0].length)).replace(/\s+/g, " ").trim();
+    }
+
+    let group = null;
+    const cardM = /(?:^|\s)(?:#|\[)(CARD-[0-9]+|TASK-[0-9]+)(?:\])?/i.exec(text);
+    if (cardM) {
+      group = cardM[1].toUpperCase();
+    }
+
     const { text: rest, due } = takeDue(text);
     if (!rest) return;
     const slug = keyOf(folder), l = this.lists[slug];
     this.input.set_value("");
     this.typed = "";
-    cx.spawn(async (cx) => this.write(slug, folder, [...(l?.items ?? []), { done: false, text: rest, due, doneOn: null }], cx));
+    const meta = (group || priority) ? { group, priority } : null;
+    cx.spawn(async (cx) => this.write(slug, folder, [...(l?.items ?? []), { done: false, text: rest, due, doneOn: null, group, priority, meta, subtasks: [], description: "" }], cx));
     toFile(folder, "add", rest);
   }
 
@@ -903,7 +948,8 @@ export default class Todos extends View {
     const all = Object.entries(this.lists).filter(([, l]) => inScope(l)).flatMap(([slug, l]) => l.items.map((x, i) => ({ ...x, slug, i, folder: l.folder })));
     const open = all.filter((x) => !x.done), doneToday = all.filter((x) => x.done).sort((a, b) => (b.doneOn ?? "").localeCompare(a.doneOn ?? ""));
     const hereOpen = hereOk ? (this.lists[hereSlug]?.items ?? []).filter((x) => !x.done).length : 0;
-    const shown = (list) => list.filter((x) => !this.filter || x.slug === this.filter);
+    const activeGroups = [...new Set((this.filter ? (this.lists[this.filter]?.items ?? []) : all).map((it) => it.group).filter(Boolean))];
+    const shown = (list) => list.filter((x) => !this.filter || x.slug === this.filter).filter((x) => !this.groupFilter || x.group === this.groupFilter);
     const dueKey = (x) => (x.due ? x.due.padEnd(16, " ") : "~");
     const list = shown(open).sort((a, b) => (b.slug === hereSlug) - (a.slug === hereSlug) || dueKey(a).localeCompare(dueKey(b)) || a.slug.localeCompare(b.slug) || a.i - b.i);
     const done = shown(doneToday);
@@ -942,6 +988,8 @@ export default class Todos extends View {
       const prioColor = x.priority === "P0" ? t.ansi1 : x.priority === "P1" ? t.ansi3 : x.priority === "P2" ? t.ansi4 : t.dim;
       const subDone = x.subtasks?.filter(s => s.done).length ?? 0;
       const subTotal = x.subtasks?.length ?? 0;
+      const isExp = this.expanded?.has(key);
+      const hasDetails = subTotal > 0 || Boolean(x.description);
       return h_flex().id(`todo-${key}`).min_h(30).px(8).gap(8).items_center().rounded(8)
         .when(on, (el) => el.bg(t.accent + "38")).hover((s) => s.bg(on ? t.accent + "38" : t.hover))
         .on_click((e, cx) => { if (multi(e) && !editing && this.filter) this.pick(x, e, cx); })
@@ -956,7 +1004,13 @@ export default class Todos extends View {
             this.fileAt[x.folder] = 0;
           }))
         .when(Boolean(x.priority) && !editing, (el) => el.child(div().px(4).py(0.5).rounded(3).border_1().border_color(prioColor + "55").bg(prioColor + "18").text_size(9.5).font_semibold().text_color(prioColor).child(x.priority)))
-        .when(subTotal > 0 && !editing, (el) => el.child(div().px(4).py(0.5).rounded(3).bg(t.raised).text_size(9.5).text_color(subDone === subTotal ? t.ansi2 : t.muted).child(`${subDone}/${subTotal}`)))
+        .when(Boolean(x.group) && !editing && !x.text.toUpperCase().includes(x.group), (el) => el.child(div().px(4).py(0.5).rounded(3).bg(t.ansi6 + "18").text_size(9.5).font_semibold().text_color(t.ansi6).child(`#${x.group}`)))
+        .when(hasDetails && !editing, (el) => el.child(h_flex().id(`exp-${key}`).px(4).py(0.5).gap(2).items_center().rounded(3).bg(t.raised).cursor_pointer()
+          .hover((st) => st.bg(t.hover))
+          .on_click((_e, cx) => { cx.stop_propagation(); this.toggleExpand(key, cx); })
+          .child(svg(`mods/workspace-chrome/chevron-${isExp ? "down" : "right"}.svg`).size(8).text_color(t.muted))
+          .when(subTotal > 0, (b) => b.child(div().text_size(9.5).text_color(subDone === subTotal ? t.ansi2 : t.muted).child(`${subDone}/${subTotal}`)))
+          .when(Boolean(x.description) && subTotal === 0, (b) => b.child(div().text_size(9.5).text_color(t.dim).child("desc")))))
         .child(editing
           ? Input.new(this.editInput).flex_1().h(24).px(6).rounded(5).border_1().border_color(t.accent).bg(t.background).text_size(13).text_color(t.foreground)
           : div().id(`text-${key}`).flex_1().min_w(0).text_size(13).line_height("18px").text_color(x.done ? t.dim : t.foreground).when(x.done, (el) => el.line_through())
@@ -1059,7 +1113,55 @@ export default class Todos extends View {
           starter({ ...open[0], folder: many ? null : open[0].folder }, (a, _cx, to) => this.sendPicked(a, to)).ml(0).mr(0).mb(0)))
         .when(this.startFor === "sel" && many, (el) => el.child(div().px(4).text_size(11).text_color(t.dim).child(`A new agent in each of the ${folders.size} projects`)));
     };
-    const withStarter = (x) => [row(x), ...(this.startFor === `${x.slug}:${x.i}` ? [starter(x)] : [])];
+    const detailsBlock = (x) => {
+      const key = `${x.slug}:${x.i}`;
+      const subtasks = x.subtasks ?? [];
+      const adding = this.subFor === key;
+      return v_flex().id(`details-${key}`).ml(30).mr(8).mb(4).p(5).gap(3).rounded(6).bg(t.raised + "55")
+        .when(Boolean(x.description), (el) => el.child(
+          div().px(6).py(3).rounded(4).bg(t.raised).border_l_2().border_color(t.accent).text_size(11.5).text_color(t.dim).child(x.description)
+        ))
+        .when(subtasks.length > 0, (el) => el.children(subtasks.map((s, si) =>
+          h_flex().id(`sub-${key}-${si}`).min_h(22).px(4).gap(6).items_center().rounded(4).hover((st) => st.bg(t.hover))
+            .child(div().id(`subtick-${key}-${si}`).size(12).flex_none().rounded(6).border_1().cursor_pointer().border_color(s.done ? t.ansi2 : t.muted)
+              .when(s.done, (b) => b.bg(t.ansi2).flex().items_center().justify_center().child(svg("mods/workspace-chrome/check.svg").size(7).text_color(t.background)))
+              .on_click((_e, cx) => {
+                this.change(x.slug, (items) => items.map((it, j) => {
+                  if (j === x.i) {
+                    const nextSubs = it.subtasks.map((sub, sj) => (sj === si ? { ...sub, done: !sub.done, doneOn: sub.done ? null : stamp() } : sub));
+                    return { ...it, subtasks: nextSubs };
+                  }
+                  return it;
+                }), cx);
+              }))
+            .child(div().flex_1().min_w(0).truncate().text_size(11.5).text_color(s.done ? t.dim : t.foreground).when(s.done, (b) => b.line_through()).child(s.text))
+            .child(div().size(14).flex_none().flex().items_center().justify_center().rounded(3).cursor_pointer()
+              .hover((st) => st.bg(t.raised)).on_click((_e, cx) => {
+                this.change(x.slug, (items) => items.map((it, j) => {
+                  if (j === x.i) {
+                    const nextSubs = it.subtasks.filter((_, sj) => sj !== si);
+                    return { ...it, subtasks: nextSubs };
+                  }
+                  return it;
+                }), cx);
+              })
+              .child(svg("mods/workspace-chrome/x.svg").size(9).text_color(t.muted)))
+        )))
+        .child(adding
+          ? Input.new(this.subInput).h(22).px(6).rounded(4).border_1().border_color(t.accent).bg(t.background).text_size(11.5).text_color(t.foreground)
+          : h_flex().id(`addsub-${key}`).h(20).px(4).gap(4).items_center().rounded(4).cursor_pointer().text_size(11).text_color(t.muted)
+            .hover((st) => st.bg(t.hover).text_color(t.foreground))
+            .on_click((_e, cx) => { this.subFor = key; this.subInput.set_value(""); this.subInput.focus(); cx.notify(); })
+            .child(div().child("+ Add subtask")));
+    };
+    const withStarter = (x) => {
+      const key = `${x.slug}:${x.i}`;
+      const isExp = this.expanded?.has(key);
+      const res = [row(x)];
+      if (this.startFor === key) res.push(starter(x));
+      if (isExp && ((x.subtasks && x.subtasks.length > 0) || Boolean(x.description))) res.push(detailsBlock(x));
+      return res;
+    };
 
     // A project switch, as the usage rows' plan badges ("Ultra", "Free"): a small
     // tag with its icon (the one the tabs show when it's on) and name; shaded with
@@ -1086,8 +1188,13 @@ export default class Todos extends View {
         }))
       .child(h_flex().flex_wrap().min_h(30).gap(2).px(8).pt(5).items_center().text_size(11.5)
         // The project you're in first, then All.
-        .when(hereOk, (el) => el.child(chip("here", this.name(this.here), hereOpen || null, this.color(this.here, t), Boolean(this.filter), () => this.setMode("here"))))
-        .child(chip("all", "All", open.length, null, !this.filter, () => this.setMode("all"))))
+        .when(hereOk, (el) => el.child(chip("here", this.name(this.here), hereOpen || null, this.color(this.here, t), Boolean(this.filter && !this.groupFilter), () => { this.groupFilter = null; this.setMode("here"); })))
+        .child(chip("all", "All", open.length, null, !this.filter && !this.groupFilter, () => { this.groupFilter = null; this.setMode("all"); }))
+        .children(activeGroups.slice(0, 5).map((grp) => {
+          const count = open.filter((it) => it.group === grp).length;
+          const isPicked = this.groupFilter === grp;
+          return chip(`grp-${grp}`, `#${grp}`, count || null, t.ansi6, isPicked, () => { this.groupFilter = isPicked ? null : grp; });
+        })))
       .child(v_flex().px(8).pt(4).pb(4)
         .on_key_down((e, cx) => {
           if (!this.sugs.length) return;
