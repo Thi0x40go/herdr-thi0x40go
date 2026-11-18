@@ -948,7 +948,7 @@ export default class Todos extends View {
     const all = Object.entries(this.lists).filter(([, l]) => inScope(l)).flatMap(([slug, l]) => l.items.map((x, i) => ({ ...x, slug, i, folder: l.folder })));
     const open = all.filter((x) => !x.done), doneToday = all.filter((x) => x.done).sort((a, b) => (b.doneOn ?? "").localeCompare(a.doneOn ?? ""));
     const hereOpen = hereOk ? (this.lists[hereSlug]?.items ?? []).filter((x) => !x.done).length : 0;
-    const activeGroups = [...new Set((this.filter ? (this.lists[this.filter]?.items ?? []) : all).map((it) => it.group).filter(Boolean))];
+    const activeGroups = [...new Set((this.filter ? (this.lists[this.filter]?.items ?? []) : all).map((it) => it.group).filter(Boolean))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
     const shown = (list) => list.filter((x) => !this.filter || x.slug === this.filter).filter((x) => !this.groupFilter || x.group === this.groupFilter);
     const dueKey = (x) => (x.due ? x.due.padEnd(16, " ") : "~");
     const list = shown(open).sort((a, b) => (b.slug === hereSlug) - (a.slug === hereSlug) || dueKey(a).localeCompare(dueKey(b)) || a.slug.localeCompare(b.slug) || a.i - b.i);
@@ -1187,14 +1187,14 @@ export default class Todos extends View {
             .child(toggle("link", "Sync", "mods/todos/sync.svg", o.sync, `Sync (${n}): its TODO.md follows the list`, (cx) => this.setOpt(l.folder, "sync", !o.sync, cx)));
         }))
       .child(h_flex().flex_wrap().min_h(30).gap(2).px(8).pt(5).items_center().text_size(11.5)
-        // The project you're in first, then All.
+        // The project you're in first, then active groups sorted, and All last.
         .when(hereOk, (el) => el.child(chip("here", this.name(this.here), hereOpen || null, this.color(this.here, t), Boolean(this.filter && !this.groupFilter), () => { this.groupFilter = null; this.setMode("here"); })))
-        .child(chip("all", "All", open.length, null, !this.filter && !this.groupFilter, () => { this.groupFilter = null; this.setMode("all"); }))
-        .children(activeGroups.slice(0, 5).map((grp) => {
+        .children(activeGroups.map((grp) => {
           const count = open.filter((it) => it.group === grp).length;
           const isPicked = this.groupFilter === grp;
           return chip(`grp-${grp}`, `#${grp}`, count || null, t.ansi6, isPicked, () => { this.groupFilter = isPicked ? null : grp; });
-        })))
+        }))
+        .child(chip("all", "All", open.length, null, !this.filter && !this.groupFilter, () => { this.groupFilter = null; this.setMode("all"); })))
       .child(v_flex().px(8).pt(4).pb(4)
         .on_key_down((e, cx) => {
           if (!this.sugs.length) return;
