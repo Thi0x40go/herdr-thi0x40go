@@ -16,7 +16,7 @@ Puts idle or completed coding agents to sleep to free RAM and system resources, 
   - Shell prompt clean line clearing (`ctrl+u`) before sending resume commands.
   - Survives app restarts via native Herdr terminal labels.
 
-### 🌳 [orchestrator-wt](orchestrator-wt/)
+### 🌳 [worktree](worktree/)
 Fast, keyboard-friendly Git worktree and repository manager built for the Orchestrator development environment.
 - **Keybinding:** `alt-w`
 - **Key Features:**
@@ -64,7 +64,7 @@ Interactive terminal-based browser integration for Herdr, running side-by-side w
    ```bash
    mkdir -p ~/.config/herdr-app/mods
    ln -snf ~/Projects/herdr-thi0x40go/agent-sleep/mods/agent-sleep ~/.config/herdr-app/mods/agent-sleep
-   ln -snf ~/Projects/herdr-thi0x40go/orchestrator-wt/mods/orchestrator-wt ~/.config/herdr-app/mods/orchestrator-wt
+   ln -snf ~/Projects/herdr-thi0x40go/worktree/mods/worktree ~/.config/herdr-app/mods/worktree
    ln -snf ~/Projects/herdr-thi0x40go/hibernate/mods/hibernate ~/.config/herdr-app/mods/hibernate
    ln -snf ~/Projects/herdr-thi0x40go/todos/mods/todos ~/.config/herdr-app/mods/todos
    ln -snf ~/Projects/herdr-thi0x40go/terminal-browser/mods/terminal-browser ~/.config/herdr-app/mods/terminal-browser
@@ -83,7 +83,7 @@ Interactive terminal-based browser integration for Herdr, running side-by-side w
 4. **Validate mod integrity:**
    ```bash
    herdr-app check ~/.config/herdr-app/mods/agent-sleep
-   herdr-app check ~/.config/herdr-app/mods/orchestrator-wt
+   herdr-app check ~/.config/herdr-app/mods/worktree
    herdr-app check ~/.config/herdr-app/mods/hibernate
    herdr-app check ~/.config/herdr-app/mods/todos
    herdr-app check ~/.config/herdr-app/mods/terminal-browser
@@ -93,7 +93,7 @@ Interactive terminal-based browser integration for Herdr, running side-by-side w
    Add the following shortcuts inside your `keys.json`:
    ```json
    {
-     "alt-w": "orchestrator-wt",
+     "alt-w": "worktree",
      "alt-z": "hibernate.sleep",
      "alt-b": "terminal-browser.open"
    }
@@ -122,15 +122,15 @@ herdr-app check ~/.config/herdr-app/mods/agent-sleep
 }
 ```
 
-#### 2. Installing `orchestrator-wt` only
+#### 2. Installing `worktree` only
 ```bash
-ln -snf ~/Projects/herdr-thi0x40go/orchestrator-wt/mods/orchestrator-wt ~/.config/herdr-app/mods/orchestrator-wt
-herdr-app check ~/.config/herdr-app/mods/orchestrator-wt
+ln -snf ~/Projects/herdr-thi0x40go/worktree/mods/worktree ~/.config/herdr-app/mods/worktree
+herdr-app check ~/.config/herdr-app/mods/worktree
 ```
 Add the keybinding to `~/.config/herdr-app/keys.json`:
 ```json
 {
-  "alt-w": "orchestrator-wt"
+  "alt-w": "worktree"
 }
 ```
 

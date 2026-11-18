@@ -644,7 +644,7 @@ export default ${JSON.stringify(CONFIG, null, 2)};
 `;
     cx.spawn(async (cx) => {
       try {
-        await exec("sh", ["-c", `cat << 'EOF' > ${this.userHome}/.config/herdr-app/mods/orchestrator-wt/config.js\n${content}\nEOF`]);
+        await exec("sh", ["-c", `cat << 'EOF' > ${this.userHome}/.config/herdr-app/mods/worktree/config.js\n${content}\nEOF`]);
       } catch {}
       cx.notify();
     });
@@ -745,7 +745,7 @@ export default ${JSON.stringify(CONFIG, null, 2)};
     }
 
     return v_flex()
-      .id("orchestrator-wt-root")
+      .id("worktree-root")
       .track_focus(this.handle)
       .on_key_down((e, cx) => this.key(e, cx))
       .size_full()
@@ -817,7 +817,7 @@ export default ${JSON.stringify(CONFIG, null, 2)};
                     cx.timer.after(200, () => this.branchInput.focus());
                   })
                   .child(
-                    svg("mods/orchestrator-wt/add.svg")
+                    svg("mods/worktree/add.svg")
                       .size(13)
                       .flex_none()
                   )
@@ -839,7 +839,7 @@ export default ${JSON.stringify(CONFIG, null, 2)};
                   .hover((s) => s.bg(t.hover))
                   .on_click((_e, cx) => this.loadRepos(cx))
                   .child(
-                    svg("mods/orchestrator-wt/sync.svg")
+                    svg("mods/worktree/sync.svg")
                       .size(13)
                       .flex_none()
                       .when(this.loading, (el) => el.spin(900))
@@ -1031,7 +1031,7 @@ export default ${JSON.stringify(CONFIG, null, 2)};
               .gap(6)
               .items_center()
               .child(
-                svg("mods/orchestrator-wt/git-branch.svg")
+                svg("mods/worktree/git-branch.svg")
                   .size(13)
                   .flex_none()
                   .text_color(t.dim)
@@ -1131,7 +1131,7 @@ export default ${JSON.stringify(CONFIG, null, 2)};
                 .on_click((_e, cx) =>
                   this.showDiff({ ...wt, repo_id: repoId }, cx)
                 )
-                .child(svg("mods/orchestrator-wt/eye.svg").size(13).flex_none())
+                .child(svg("mods/worktree/eye.svg").size(13).flex_none())
                 .child(div().child("Diff"))
             )
           )
@@ -1153,7 +1153,7 @@ export default ${JSON.stringify(CONFIG, null, 2)};
                 this.syncBase({ ...wt, repo_id: repoId }, cx)
               )
               .child(
-                svg("mods/orchestrator-wt/sync.svg")
+                svg("mods/worktree/sync.svg")
                   .size(13)
                   .flex_none()
                   .when(sync.busy, (el) => el.spin(900))
@@ -1449,7 +1449,7 @@ export default ${JSON.stringify(CONFIG, null, 2)};
             div()
               .text_size(11)
               .text_color(t.dim)
-              .child("Arquivo de configuração: ~/.config/herdr-app/mods/orchestrator-wt/config.js")
+              .child("Arquivo de configuração: ~/.config/herdr-app/mods/worktree/config.js")
           )
           .child(
             div()
@@ -1463,7 +1463,7 @@ export default ${JSON.stringify(CONFIG, null, 2)};
               .text_color(t.accent)
               .hover((s) => s.bg(t.hover))
               .on_click(() => {
-                exec("xdg-open", [`${this.userHome}/.config/herdr-app/mods/orchestrator-wt/config.js`]);
+                exec("xdg-open", [`${this.userHome}/.config/herdr-app/mods/worktree/config.js`]);
               })
               .child("✏️ Editar arquivo completo")
           )

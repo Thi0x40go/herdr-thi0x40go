@@ -24,7 +24,7 @@ A floating popup modal (`overlay.kind = "popup"`), centered at 820×560 px with 
 ## How it behaves
 
 - **Opening & Closing:**
-  - Triggered globally via `alt-w` (`mod.open:orchestrator-wt`).
+  - Triggered globally via `alt-w` (`mod.open:worktree`).
   - Closes on `Esc`, clicking outside the popup overlay, or clicking the close button.
 - **Detached Editor Execution:**
   - Editors and terminal windows are launched detached (`launchDetached`) using `nohup ... </dev/null >/dev/null 2>&1 &` so that Herdr's 30-second `EXEC_LIMIT` never terminates running processes.
@@ -34,7 +34,7 @@ A floating popup modal (`overlay.kind = "popup"`), centered at 820×560 px with 
 
 ## Built from
 
-- **`mods/orchestrator-wt/`**:
+- **`mods/worktree/`**:
   - `main.js`: Main UI component, state management, search filter, and list rendering.
   - `config.js`: Persistent configuration storage for custom paths and terminal preferences.
   - `mod.json`: Overlay popup specification (`place: "none"`, width 820, height 560).

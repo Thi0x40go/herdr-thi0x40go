@@ -1,0 +1,5 @@
+{
+  "global": {
+    "alt-w": "mod.open:worktree"
+  }
+}
