@@ -4,7 +4,7 @@
 # injects a note with each message reminding the agent to update its to-do list.
 rule_ok=false
 for r in "$HOME/.claude/CLAUDE.md" "$HOME/.kiro/steering/todo.md" "$HOME/.gemini/GEMINI.md" "$HOME/.codex/AGENTS.md" "$HOME/.pi/agent/AGENTS.md"; do
-  if grep -q '<!-- over9k:todo -->' "$r" 2>/dev/null; then
+  if grep -E -q '<!-- (over9k|herdr):todo -->' "$r" 2>/dev/null; then
     rule_ok=true
     break
   fi

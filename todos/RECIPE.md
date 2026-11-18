@@ -36,7 +36,7 @@ a 10px radius. Colours are theme names.
 
 ## How it behaves
 
-- Lists live in `~/.local/share/over9k/todos/<slug>.md`, one per project, where
+- Lists live in `~/.local/share/herdr/todos/<slug>.md`, one per project, where
   the slug is the folder with non-alphanumerics turned into `-`. The panel
   watches that folder, so the `todo` command's changes show at once.
 - **Ticking:**
@@ -55,7 +55,7 @@ a 10px radius. Colours are theme names.
   - **Log:** agents add what you ask for.
   - **Sync:** add, edit, rm and tick change the project's TODO.md too.
   - A project that hasn't set either follows the defaults in
-    `~/.local/share/over9k/todo-defaults`.
+    `~/.local/share/herdr/todo-defaults`.
 - **Set up** runs `setup.sh todo on`. That writes the rule into CLAUDE.md and
   AGENTS.md, puts a `todo` wrapper in `~/.local/bin`, and adds a
   UserPromptSubmit hook that reminds agents while Log is on.

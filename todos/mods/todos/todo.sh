@@ -24,14 +24,18 @@ if [ "${1:-}" = --rule ]; then
   for f in "$HOME/.claude/CLAUDE.md" "$HOME/.codex/AGENTS.md" "$HOME/.pi/agent/AGENTS.md" "$HOME/.gemini/GEMINI.md" "$HOME/.kiro/steering/todo.md"; do
     [ -d "$(dirname "$f")" ] || continue
     if [ -f "$f" ]; then
-      tmp="$f.over9k.$$"
-      sed '/<!-- over9k:todo -->/,/<!-- \/over9k:todo -->/d' "$f" | awk 'NF { for (; n > 0; n--) print ""; print; next } { n++ }' > "$tmp" && mv "$tmp" "$f"
+      tmp="$f.herdr.$$"
+      sed '/<!-- \(over9k\|herdr\):todo -->/,/<!-- \/\(over9k\|herdr\):todo -->/d' "$f" | awk 'NF { for (; n > 0; n--) print ""; print; next } { n++ }' > "$tmp" && mv "$tmp" "$f"
+      if [ "$f" = "$HOME/.kiro/steering/todo.md" ]; then
+        sed -i '/---/,/---/d' "$f" 2>/dev/null || true
+        sed -i '/./,$!d' "$f" 2>/dev/null || true
+      fi
     fi
     [ "${2:-}" = on ] && {
       [ -s "$f" ] && printf '\n'
       [ "$f" = "$HOME/.kiro/steering/todo.md" ] && printf -- '---\ninclusion: always\n---\n'
       cat <<'EOF'
-<!-- over9k:todo -->
+<!-- herdr:todo -->
 ## Project to-do lists (Herdr)
 
 Each project has a to-do list the user sees in Herdr's To-do panel and edits there
@@ -46,14 +50,15 @@ partly done, and say so. When they change, narrow or drop a request, correct its
 item instead of adding another: `todo edit <n> <new text>` rewords it, `todo rm <n>`
 removes it. When they say to stop or start logging, run `todo log off` / `todo log on` (that project only). Also add an item when the user asks you to note something for later, or
 when you leave follow-up work undone. Keep items short, one line each.
-<!-- /over9k:todo -->
+<!-- /herdr:todo -->
 EOF
     } >> "$f"
   done
   exit 0
 fi
 # Where the lists live (the panel, main.js, uses the same folder).
-DIR="${XDG_DATA_HOME:-$HOME/.local/share}/over9k/todos"
+DIR="${XDG_DATA_HOME:-$HOME/.local/share}/herdr/todos"
+[ -d "$DIR" ] || [ ! -d "${XDG_DATA_HOME:-$HOME/.local/share}/over9k/todos" ] || DIR="${XDG_DATA_HOME:-$HOME/.local/share}/over9k/todos"
 # This script's own folder, through a symlink (todo-cross.py lives there).
 SELF=$(readlink -f "$0" 2>/dev/null || printf %s "$0")
 HERE=$(dirname "$SELF")
@@ -69,8 +74,9 @@ if [ -z "$folder" ]; then
 fi
 folder=${folder%/}
 # A project's Log or Sync: its own "<!-- log|sync: on|off -->" line, else the
-# default Over9k's Options › To-do writes to todo-defaults ("log on", "sync off").
-DEFAULTS="${XDG_DATA_HOME:-$HOME/.local/share}/over9k/todo-defaults"
+# default todo-defaults ("log on", "sync off").
+DEFAULTS="${XDG_DATA_HOME:-$HOME/.local/share}/herdr/todo-defaults"
+[ -f "$DEFAULTS" ] || [ ! -f "${XDG_DATA_HOME:-$HOME/.local/share}/over9k/todo-defaults" ] || DEFAULTS="${XDG_DATA_HOME:-$HOME/.local/share}/over9k/todo-defaults"
 opt() {
   v=$(sed -n "s/^<!-- $1: \(on\|off\) -->\$/\1/p" "$file" 2>/dev/null | head -n 1)
   [ -n "$v" ] || v=$(sed -n "s/^$1 \(on\|off\)\$/\1/p" "$DEFAULTS" 2>/dev/null | head -n 1)

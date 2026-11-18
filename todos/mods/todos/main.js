@@ -48,8 +48,8 @@ const python = (args) => (PY ??= exec("python3", ["-c", "1"]).then((r) => (r?.co
 
 // Where the lists live: the same folder todo.sh uses. Resolved once at start
 // (dataDir), from $XDG_DATA_HOME when the user's environment sets it.
-const DATA_DIR = ".local/share/over9k/todos"; // under home
-const XDG_DIR = 'printf %s "${XDG_DATA_HOME:+$XDG_DATA_HOME/over9k/todos}"';
+const DATA_DIR = ".local/share/herdr/todos"; // under home
+const XDG_DIR = 'printf %s "${XDG_DATA_HOME:+$XDG_DATA_HOME/herdr/todos}"';
 let dataDir = null;
 const DIR = () => dataDir ?? `${home()}/${DATA_DIR}`;
 // Crosses a to-do out of (or back into) a project's own TODO.md.
@@ -64,7 +64,7 @@ const keyOf = (folder) => (mOf(folder) ? `@${mOf(folder)}:${slugOf(folder)}` : s
 const machineOf = (key) => (key.startsWith("@") ? key.slice(1, key.indexOf(":")) : null);
 // There, the list is read and written with sh (todo.sh's folder): a write only
 // when the file still holds what was read ($3; $4 set: it was there), else 3.
-const THERE_DIR = 'd="${XDG_DATA_HOME:-$HOME/.local/share}/over9k/todos"';
+const THERE_DIR = 'd="${XDG_DATA_HOME:-$HOME/.local/share}/herdr/todos"';
 const THERE_READ = `${THERE_DIR}; cat "$d/$1.md" 2>/dev/null`;
 const THERE_WRITE = `${THERE_DIR}; f="$d/$1.md"; mkdir -p "$d" || exit 1
 if [ -e "$f" ]; then [ "$(cat "$f")" = "$(printf %s "$3")" ] || exit 3; elif [ -n "$4" ]; then exit 3; fi
@@ -515,7 +515,7 @@ export default class Todos extends View {
   // Whether agents know about the lists: the rule in Claude Code's CLAUDE.md.
   checkRule(cx) {
     readTextFile(`${home()}/.claude/CLAUDE.md`).then((text) => {
-      const ok = (text ?? "").includes("<!-- over9k:todo -->");
+      const ok = (text ?? "").includes("<!-- herdr:todo -->") || (text ?? "").includes("<!-- over9k:todo -->");
       if (ok !== this.ruleOk) { this.ruleOk = ok; cx.notify(); }
     }).catch(() => { if (this.ruleOk) { this.ruleOk = false; cx.notify(); } });
   }

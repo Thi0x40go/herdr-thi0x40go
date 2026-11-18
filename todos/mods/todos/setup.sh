@@ -95,11 +95,11 @@ case "$cmd" in
     # The `todo` command agents run: a small wrapper (only Over9k's own is ever
     # replaced or removed).
     w="$HOME/.local/bin/todo"
-    ours() { grep -q 'over9k todo wrapper' "$w" 2>/dev/null || { [ -L "$w" ] && readlink "$w" | grep -q over9k; }; }
+    ours() { grep -E -q '(over9k|herdr) todo wrapper' "$w" 2>/dev/null || { [ -L "$w" ] && readlink "$w" | grep -E -q '(over9k|todos)'; }; }
     if [ "$on" = on ]; then
       if [ ! -e "$w" ] || ours; then
         mkdir -p "$HOME/.local/bin" && rm -f "$w" \
-          && printf '#!/bin/sh\n# over9k todo wrapper (Options > To-do)\nexec sh "%s" "$@"\n' "$t" > "$w" && chmod +x "$w"
+          && printf '#!/bin/sh\n# herdr todo wrapper\nexec sh "%s" "$@"\n' "$t" > "$w" && chmod +x "$w"
       fi
     elif ours; then rm -f "$w"; fi
     command -v jq >/dev/null 2>&1 && hook "$on" UserPromptSubmit todos/todo-hook.sh "sh \"$mods/todos/todo-hook.sh\""
@@ -134,7 +134,7 @@ EOF
   default)
     k=$on v=${3:-}
     case "$k:$v" in log:on|log:off|sync:on|sync:off) ;; *) echo "usage: setup.sh default log|sync on|off" >&2; exit 2 ;; esac
-    d="${XDG_DATA_HOME:-$HOME/.local/share}/over9k"; mkdir -p "$d"
+    d="${XDG_DATA_HOME:-$HOME/.local/share}/herdr"; mkdir -p "$d"
     { grep -v "^$k " "$d/todo-defaults" 2>/dev/null; echo "$k $v"; } > "$d/todo-defaults.tmp" && mv "$d/todo-defaults.tmp" "$d/todo-defaults" ;;
   check)
     command -v git >/dev/null 2>&1 || echo "git: the sidebar's branch, changes and push/pull"
