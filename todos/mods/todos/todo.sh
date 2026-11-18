@@ -197,7 +197,7 @@ case "$cmd" in
   done|check)
     n=${1:?item number or text}
     case "$n" in
-      *.*)
+      [0-9]*.[0-9]*)
         if [ -n "$PY" ] && [ -f "$ENGINE" ]; then
           exec "$PY" "$ENGINE" -p "$folder" done "$@"
         fi
@@ -212,7 +212,7 @@ case "$cmd" in
   undo|uncheck)
     n=${1:?item number or text}
     case "$n" in
-      *.*)
+      [0-9]*.[0-9]*)
         if [ -n "$PY" ] && [ -f "$ENGINE" ]; then
           exec "$PY" "$ENGINE" -p "$folder" undo "$@"
         fi
@@ -229,7 +229,7 @@ case "$cmd" in
   edit|reword)
     n=${1:?item number or text}; shift
     case "$n" in
-      *.*)
+      [0-9]*.[0-9]*)
         if [ -n "$PY" ] && [ -f "$ENGINE" ]; then
           exec "$PY" "$ENGINE" -p "$folder" edit "$n" "$@"
         fi
@@ -258,7 +258,7 @@ case "$cmd" in
   rm|delete)
     n=${1:?item number}
     case "$n" in
-      *.*)
+      [0-9]*.[0-9]*)
         if [ -n "$PY" ] && [ -f "$ENGINE" ]; then
           exec "$PY" "$ENGINE" -p "$folder" rm "$@"
         fi

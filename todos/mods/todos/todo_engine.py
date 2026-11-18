@@ -442,7 +442,7 @@ def cmd_done(args):
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
 
     # Check if subtask notation: "1.2"
-    if "." in target:
+    if re.match(r"^\d+\.\d+$", target):
         parts = target.split(".", 1)
         try:
             pidx, sidx = int(parts[0]) - 1, int(parts[1]) - 1
@@ -477,7 +477,7 @@ def cmd_undo(args):
     target = args.target
 
     # Check if subtask notation: "1.2"
-    if "." in target:
+    if re.match(r"^\d+\.\d+$", target):
         parts = target.split(".", 1)
         try:
             pidx, sidx = int(parts[0]) - 1, int(parts[1]) - 1
@@ -510,7 +510,7 @@ def cmd_rm(args):
     p = ProjectTodoList(path)
     target = args.target
 
-    if "." in target:
+    if re.match(r"^\d+\.\d+$", target):
         parts = target.split(".", 1)
         try:
             pidx, sidx = int(parts[0]) - 1, int(parts[1]) - 1
@@ -545,7 +545,7 @@ def cmd_edit(args):
     target = args.target
     new_text = " ".join(args.text)
 
-    if "." in target:
+    if re.match(r"^\d+\.\d+$", target):
         parts = target.split(".", 1)
         try:
             pidx, sidx = int(parts[0]) - 1, int(parts[1]) - 1
