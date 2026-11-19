@@ -615,7 +615,7 @@ export default class Todos extends View {
     this.subFor = null;
     this.subInput = InputState.new({ placeholder: "Add a subtask..." });
     this.subInput.on("submit", (_e, cx) => this.saveSub(cx));
-    this.subInput.on("blur", (_e, cx) => { if (this.subFor) { this.subFor = null; cx.notify(); } });
+    this.subInput.on("blur", (_e, cx) => { if (this.subFor) { const k = this.subFor; this.subFor = null; this.closeAction(k, cx); } });
 
     this.createPrio = null;
     this.createGroup = "";
@@ -671,10 +671,23 @@ export default class Todos extends View {
     cx.notify();
   }
 
+  closeAction(key, cx) {
+    if (key) {
+      const [slug, iStr] = key.split(":");
+      const idx = Number(iStr);
+      const it = this.lists[slug]?.items?.[idx];
+      const hasDetails = Boolean(it?.subtasks?.length || it?.description || it?.urls?.length || it?.tags?.length);
+      if (!hasDetails) {
+        this.expanded.delete(key);
+      }
+    }
+    cx.notify();
+  }
+
   saveTaskLink(cx) {
     const k = this.linkFor;
     const url = this.linkUrlInput.value().trim();
-    if (!k || !url) { this.linkFor = null; return cx.notify(); }
+    if (!k || !url) { this.linkFor = null; return this.closeAction(k, cx); }
     const name = this.linkNameInput.value().trim() || "link";
     const [slug, iStr] = k.split(":");
     const idx = Number(iStr);
@@ -714,7 +727,7 @@ export default class Todos extends View {
   saveTaskTag(cx) {
     const k = this.tagFor;
     const tag = this.tagInput.value().trim().replace(/^#/, "");
-    if (!k || !tag) { this.tagFor = null; return cx.notify(); }
+    if (!k || !tag) { this.tagFor = null; return this.closeAction(k, cx); }
     const [slug, iStr] = k.split(":");
     const idx = Number(iStr);
     this.tagInput.set_value("");
@@ -736,6 +749,9 @@ export default class Todos extends View {
       if (j === idx) {
         const tags = (it.tags ?? []).filter((t) => t !== tag);
         const meta = { ...(it.meta ?? {}), tags };
+        if (!tags.length && !it.description && !it.urls?.length && !it.subtasks?.length) {
+          this.expanded.delete(key);
+        }
         return { ...it, tags, meta };
       }
       return it;
@@ -761,7 +777,7 @@ export default class Todos extends View {
   saveSub(cx) {
     const k = this.subFor;
     const text = this.subInput.value().trim();
-    if (!k || !text) { this.subFor = null; return cx.notify(); }
+    if (!k || !text) { this.subFor = null; return this.closeAction(k, cx); }
     const [slug, iStr] = k.split(":");
     const idx = Number(iStr);
     this.subInput.set_value("");
@@ -1420,6 +1436,12 @@ export default class Todos extends View {
       const editingDesc = this.descFor === key;
       const addingTag = this.tagFor === key;
       const addingLink = this.linkFor === key;
+      const hasDetails = Boolean(x.tags?.length || x.description || x.urls?.length || subtasks.length);
+      const isAction = adding || editingDesc || addingTag || addingLink;
+      if (!hasDetails && !isAction) {
+        this.expanded.delete(key);
+        return null;
+      }
       return v_flex().id(`details-${key}`).ml(34).mr(10).mb(6).p(10).gap(8).rounded(8).border_1().border_color(t.border).bg(t.raised + "33")
         // Tags section (if any or adding)
         .when((x.tags && x.tags.length > 0) || addingTag, (el) => el.child(
@@ -1436,7 +1458,7 @@ export default class Todos extends View {
                 .hover((st) => st.bg(t.hover)).on_click((_e, cx) => this.saveTaskTag(cx))
                 .child(div().text_size(11).text_color(t.accent).child("Save")))
               .child(div().size(16).cursor_pointer().flex().items_center().justify_center()
-                .on_click((_e, cx) => { this.tagFor = null; cx.notify(); })
+                .on_click((_e, cx) => { this.tagFor = null; this.closeAction(key, cx); })
                 .child(svg("mods/workspace-chrome/x.svg").size(9).text_color(t.muted))))
         ))
         // Description block
@@ -1448,7 +1470,7 @@ export default class Todos extends View {
                 .hover((st) => st.bg(t.hover)).on_click((_e, cx) => this.saveTaskDesc(cx))
                 .child(div().text_size(11).font_semibold().text_color(t.accent).child("Save")))
               .child(div().size(20).cursor_pointer().flex().items_center().justify_center()
-                .on_click((_e, cx) => { this.descFor = null; cx.notify(); })
+                .on_click((_e, cx) => { this.descFor = null; this.closeAction(key, cx); })
                 .child(svg("mods/workspace-chrome/x.svg").size(10).text_color(t.muted)))
             : h_flex().gap(6).items_start()
               .child(div().flex_1().px(10).py(6).rounded(6).bg(t.background).border_l_3().border_color(t.accent).text_size(12).line_height("18px").text_color(t.dim).child(x.description))
@@ -1494,6 +1516,9 @@ export default class Todos extends View {
                 this.change(x.slug, (items) => items.map((it, j) => {
                   if (j === x.i) {
                     const nextSubs = it.subtasks.filter((_, sj) => sj !== si);
+                    if (!nextSubs.length && !it.description && !it.urls?.length && !it.tags?.length) {
+                      this.expanded.delete(key);
+                    }
                     return { ...it, subtasks: nextSubs };
                   }
                   return it;
@@ -1511,7 +1536,7 @@ export default class Todos extends View {
               .on_click((_e, cx) => this.saveTaskLink(cx))
               .child(div().text_size(11).font_semibold().text_color(t.accent).child("Add")))
             .child(div().size(20).cursor_pointer().flex().items_center().justify_center()
-              .on_click((_e, cx) => { this.linkFor = null; cx.notify(); })
+              .on_click((_e, cx) => { this.linkFor = null; this.closeAction(key, cx); })
               .child(svg("mods/workspace-chrome/x.svg").size(10).text_color(t.muted)))
         ))
         // Inline subtask adder form
@@ -1523,7 +1548,7 @@ export default class Todos extends View {
               .on_click((_e, cx) => this.saveSub(cx))
               .child(div().text_size(11.5).font_semibold().text_color(t.accent).child("Save")))
             .child(div().size(20).cursor_pointer().flex().items_center().justify_center()
-              .on_click((_e, cx) => { this.subFor = null; cx.notify(); })
+              .on_click((_e, cx) => { this.subFor = null; this.closeAction(key, cx); })
               .child(svg("mods/workspace-chrome/x.svg").size(10).text_color(t.muted)))
         ));
     };
@@ -1532,7 +1557,10 @@ export default class Todos extends View {
       const isExp = this.expanded?.has(key);
       const res = [row(x)];
       if (this.startFor === key) res.push(starter(x));
-      if (isExp) res.push(detailsBlock(x));
+      if (isExp) {
+        const d = detailsBlock(x);
+        if (d) res.push(d);
+      }
       return res;
     };
 
