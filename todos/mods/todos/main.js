@@ -639,6 +639,7 @@ export default class Todos extends View {
     this.detailTask = null; // { slug, i }
     this.modalTitleInput = InputState.new({ placeholder: "Task title..." });
     this.modalDescInput = InputState.new({ placeholder: "Markdown description / specs..." });
+    this.modalEditingTitle = false;
     this.modalEditingDesc = false;
     this.modalDescTextarea = TextareaState.new({
       value: "",
@@ -1214,6 +1215,7 @@ export default class Todos extends View {
     this.detailTask = { slug: x.slug, i: x.i };
     this.modalTitleInput.set_value(x.text || "");
     this.modalDescInput.set_value(x.description || "");
+    this.modalEditingTitle = false;
     this.modalEditingDesc = false;
     this.modalDescTextarea.set_value(x.description || "");
     this.modalGroupInput.set_value(x.group || "");
@@ -1227,6 +1229,7 @@ export default class Todos extends View {
 
   closeDetailModal(cx) {
     this.detailTask = null;
+    this.modalEditingTitle = false;
     this.modalEditingDesc = false;
     this.modalDeleteArmed = false;
     cx.notify();
@@ -1255,6 +1258,7 @@ export default class Todos extends View {
     const { slug, i } = this.detailTask;
     const val = this.modalTitleInput.value().trim();
     if (!val) return;
+    this.modalEditingTitle = false;
     const was = this.lists[slug]?.items[i], folder = this.lists[slug]?.folder;
     if (was && folder && val !== was.text) toFile(folder, "rename", was.text, val);
     this.change(slug, (items) => items.map((it, idx) => (idx === i ? { ...it, text: val } : it)), cx);
@@ -1587,17 +1591,57 @@ export default class Todos extends View {
                       .on_click((_e, cx) => this.toggleModalTaskDone(cx))
                   )
                   .child(
-                    v_flex().flex_1().gap(4)
-                      .child(
-                        h_flex().gap(6).items_center()
-                          .child(Input.new(this.modalTitleInput).flex_1().h(32).px(8).rounded(6).border_1().border_color(t.border).bg(t.background).text_size(14).font_semibold().text_color(t.foreground))
+                    v_flex().flex_1().min_w(0).gap(4)
+                      // Reading mode: Multi-line wrapped title with hover/click edit trigger
+                      .when(!this.modalEditingTitle, (b) => b.child(
+                        h_flex().w_full().items_start().justify_between().gap(8)
                           .child(
-                            div().h(32).px(10).rounded(6).bg(t.accent + "22").border_1().border_color(t.accent).cursor_pointer().flex().items_center().justify_center()
-                              .hover((st) => st.bg(t.accent + "44"))
-                              .on_click((_e, cx) => this.saveModalTitle(cx))
-                              .child(div().text_size(11.5).font_semibold().text_color(t.accent).child("Save"))
+                            div().id("modal-title-view").flex_1().min_w(0).cursor_pointer()
+                              .text_size(14).font_bold().line_height("20px")
+                              .text_color(task.done ? t.dim : t.foreground)
+                              .when(task.done, (st) => st.line_through())
+                              .whitespace_normal()
+                              .tooltip("Click to edit title")
+                              .on_click((_e, cx) => {
+                                this.modalEditingTitle = true;
+                                this.modalTitleInput.set_value(task.text || "");
+                                cx.notify();
+                              })
+                              .child(task.text)
                           )
-                      )
+                          .child(
+                            div().id("btn-edit-title").size(24).rounded(5).cursor_pointer().flex_none().flex().items_center().justify_center()
+                              .hover((s) => s.bg(t.raised))
+                              .tooltip("Edit title")
+                              .on_click((_e, cx) => {
+                                this.modalEditingTitle = true;
+                                this.modalTitleInput.set_value(task.text || "");
+                                cx.notify();
+                              })
+                              .child(svg("mods/todos/edit.svg").size(12).text_color(t.muted))
+                          )
+                      ))
+                      // Editing mode: Input with Save and Cancel buttons
+                      .when(this.modalEditingTitle, (b) => b.child(
+                        h_flex().w_full().gap(6).items_center()
+                          .child(
+                            Input.new(this.modalTitleInput).flex_1().h(32).px(8).rounded(6)
+                              .border_1().border_color(t.accent).bg(t.background)
+                              .text_size(13).font_medium().text_color(t.foreground)
+                          )
+                          .child(
+                            div().h(30).px(10).rounded(6).bg(t.raised).cursor_pointer().flex().items_center().justify_center()
+                              .hover((st) => st.bg(t.hover))
+                              .on_click((_e, cx) => { this.modalEditingTitle = false; cx.notify(); })
+                              .child(div().text_size(11).text_color(t.muted).child("Cancel"))
+                          )
+                          .child(
+                            div().h(30).px(12).rounded(6).bg(t.accent).cursor_pointer().flex().items_center().justify_center()
+                              .hover((st) => st.opacity(0.85))
+                              .on_click((_e, cx) => this.saveModalTitle(cx))
+                              .child(div().text_size(11.5).font_semibold().text_color("#ffffff").child("Save"))
+                          )
+                      ))
                       .when(task.done && Boolean(task.doneOn), (b) => b.child(div().text_size(10.5).text_color(t.dim).child(`Done: ${task.doneOn}`)))
                       .when(!task.done && Boolean(task.due), (b) => b.child(div().text_size(10.5).text_color(overdue(task.due) ? t.ansi1 : t.dim).child(`Due: ${task.due}`)))
                   )
