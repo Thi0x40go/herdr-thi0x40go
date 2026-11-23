@@ -1557,7 +1557,7 @@ export default class Todos extends View {
                         .child(svg("mods/workspace-chrome/chevron-left.svg").size(11).text_color(t.foreground)))
                       .when(i <= 0, (b) => b.opacity(0.3).child(svg("mods/workspace-chrome/chevron-left.svg").size(11).text_color(t.muted)))
                   )
-                  .child(div().text_size(11).font_mono().text_color(t.dim).px(3).child(`${i + 1}/${(this.lists[slug]?.items ?? []).length}`))
+                  .child(div().text_size(11).font_family("JetBrains Mono").text_color(t.dim).px(3).child(`${i + 1}/${(this.lists[slug]?.items ?? []).length}`))
                   .child(
                     div().id("btn-modal-next").size(24).rounded(5).flex().items_center().justify_center()
                       .tooltip("Next task")
