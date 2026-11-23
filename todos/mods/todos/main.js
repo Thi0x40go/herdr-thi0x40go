@@ -123,6 +123,32 @@ function normalizeCard(str) {
   return c.toUpperCase();
 }
 
+function cardsMatch(a, b) {
+  if (!a || !b) return false;
+  const sa = String(a).trim().toUpperCase().replace(/^#/, "");
+  const sb = String(b).trim().toUpperCase().replace(/^#/, "");
+  if (sa === sb) return true;
+
+  const normA = normalizeCard(sa);
+  const normB = normalizeCard(sb);
+  if (normA && normB && normA === normB) return true;
+
+  const digitsA = sa.replace(/\D/g, "");
+  const digitsB = sb.replace(/\D/g, "");
+  if (digitsA && digitsB && digitsA === digitsB) {
+    const isPureDigitsA = /^\d+$/.test(sa);
+    const isPureDigitsB = /^\d+$/.test(sb);
+    if (isPureDigitsA || isPureDigitsB) return true;
+    const prefixA = sa.replace(/[-_ ]?[0-9]+$/, "");
+    const prefixB = sb.replace(/[-_ ]?[0-9]+$/, "");
+    if (!prefixA || !prefixB || prefixA === prefixB) return true;
+  }
+
+  if (sa.endsWith("-" + sb) || sb.endsWith("-" + sa)) return true;
+
+  return false;
+}
+
 const pad = (n) => String(n).padStart(2, "0");
 const dayKey = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 const today = () => dayKey(new Date());
@@ -183,8 +209,12 @@ function parseLine(text) {
   const clean = text.replace(/\s*<!--[^>]*-->/g, "").trim();
   let group = meta?.group ?? null;
   if (!group) {
-    const cardM = /\b(CARD|EVAH|TASK|PROJ|ISSUE)[-_ ]?([0-9]+)\b/i.exec(clean);
+    const cardM = /(?:^|\s)(?:#|\[)?(CARD|EVAH|TASK|PROJ|ISSUE)[-_ ]?([0-9]+)(?:\])?/i.exec(clean);
     if (cardM) group = `${cardM[1].toUpperCase()}-${cardM[2]}`;
+  }
+  if (!group) {
+    const numM = /^(?:\[|\b)([0-9]{3,6})(?:\]|:|\b)/.exec(clean);
+    if (numM) group = numM[1];
   }
   let priority = meta?.priority ?? null;
   if (priority) {
@@ -2431,7 +2461,13 @@ export default class Todos extends View {
     }
 
     // Strict Space Card scope: display tasks belonging to the active Space's assigned Card
-    const cardItems = linkedCard ? all.filter((x) => x.group && x.group.toUpperCase() === linkedCard.toUpperCase()) : [];
+    const cardItems = linkedCard ? all.filter((x) => {
+      if (x.group && cardsMatch(x.group, linkedCard)) return true;
+      if (cardsMatch(x.text, linkedCard)) return true;
+      const cardInText = /\b(CARD|EVAH|TASK|PROJ|ISSUE)[-_ ]?([0-9]+)\b/i.exec(x.text);
+      if (cardInText && cardsMatch(`${cardInText[1]}-${cardInText[2]}`, linkedCard)) return true;
+      return false;
+    }) : [];
     const open = cardItems.filter((x) => !x.done);
     const doneToday = cardItems.filter((x) => x.done).sort((a, b) => (b.doneOn ?? "").localeCompare(a.doneOn ?? ""));
     const dueKey = (x) => (x.due ? x.due.padEnd(16, " ") : "~");
