@@ -2415,8 +2415,20 @@ export default class Todos extends View {
       const m = /\b(CARD|EVAH|TASK|PROJ|ISSUE)[-_ ]?([0-9]+)\b/i.exec(name);
       return m ? `${m[1].toUpperCase()}-${m[2]}` : null;
     };
-    const explicit = sc.spaces?.[activeSpace?.id];
-    const linkedCard = (explicit && explicit !== "none" ? explicit : null) || detectCard(activeSpace?.name) || (this.here ? sc.folders?.[this.here] : null) || null;
+    const explicitSpace = sc.spaces?.[activeSpace?.id];
+    const explicitFolder = (this.here && sc.folders?.[this.here]) || (activeSpace?.folder && sc.folders?.[activeSpace.folder]) || null;
+    let linkedCard = null;
+    if (explicitSpace === "none") {
+      linkedCard = null;
+    } else if (explicitSpace) {
+      linkedCard = explicitSpace;
+    } else if (explicitFolder === "none") {
+      linkedCard = null;
+    } else if (explicitFolder) {
+      linkedCard = explicitFolder;
+    } else {
+      linkedCard = detectCard(activeSpace?.name) || null;
+    }
 
     // Strict Space Card scope: display tasks belonging to the active Space's assigned Card
     const cardItems = linkedCard ? all.filter((x) => x.group && x.group.toUpperCase() === linkedCard.toUpperCase()) : [];
