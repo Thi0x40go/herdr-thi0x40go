@@ -37,7 +37,7 @@
 // todoSync), as `todo` does (its todo-defaults file).
 
 import { View, div, svg, image } from "gpui-kit";
-import { v_flex, h_flex, InputState, Input } from "gpui-base";
+import { v_flex, h_flex, InputState, Input, TextareaState, Textarea } from "gpui-base";
 import { agentTask } from "./agent-name.js";
 import { theme, exec, home, appHome, spaces, focused, shared, readTextFile, writeTextFile, watchFolder, knownAgents, run, notify, panes, hc, agents, setShared } from "herdr";
 
@@ -639,6 +639,12 @@ export default class Todos extends View {
     this.detailTask = null; // { slug, i }
     this.modalTitleInput = InputState.new({ placeholder: "Task title..." });
     this.modalDescInput = InputState.new({ placeholder: "Markdown description / specs..." });
+    this.modalEditingDesc = false;
+    this.modalDescTextarea = TextareaState.new({
+      value: "",
+      placeholder: "Add markdown description, specs, or acceptance criteria...",
+      rows: 5
+    });
     this.modalGroupInput = InputState.new({ placeholder: "CARD-XXXX..." });
     this.modalSubInput = InputState.new({ placeholder: "Add a subtask..." });
     this.modalTagInput = InputState.new({ placeholder: "Add a tag..." });
@@ -1208,6 +1214,8 @@ export default class Todos extends View {
     this.detailTask = { slug: x.slug, i: x.i };
     this.modalTitleInput.set_value(x.text || "");
     this.modalDescInput.set_value(x.description || "");
+    this.modalEditingDesc = false;
+    this.modalDescTextarea.set_value(x.description || "");
     this.modalGroupInput.set_value(x.group || "");
     this.modalSubInput.set_value("");
     this.modalTagInput.set_value("");
@@ -1236,7 +1244,8 @@ export default class Todos extends View {
   saveModalDesc(cx) {
     if (!this.detailTask) return;
     const { slug, i } = this.detailTask;
-    const val = this.modalDescInput.value().trim();
+    const val = (this.modalDescTextarea ? this.modalDescTextarea.value() : this.modalDescInput.value()).trim();
+    this.modalEditingDesc = false;
     this.change(slug, (items) => items.map((it, idx) => (idx === i ? { ...it, description: val } : it)), cx);
   }
 
@@ -1387,6 +1396,36 @@ export default class Todos extends View {
     if (folder && item) toFile(folder, "rm", item.text);
   }
 
+
+  renderMarkdownBlock(markdownText, t) {
+    const lines = (markdownText || "").split("\n");
+    return v_flex().gap(4).children(lines.map((l) => {
+      const trimmed = l.trim();
+      if (!trimmed) return div().h(4);
+      if (trimmed.startsWith("### ")) {
+        return div().font_semibold().text_size(12).text_color(t.accent).child(trimmed.slice(4));
+      }
+      if (trimmed.startsWith("## ")) {
+        return div().font_semibold().text_size(12.5).text_color(t.foreground).child(trimmed.slice(3));
+      }
+      if (trimmed.startsWith("# ")) {
+        return div().font_bold().text_size(13).text_color(t.foreground).child(trimmed.slice(2));
+      }
+      if (trimmed.startsWith("- ") || trimmed.startsWith("* ")) {
+        return h_flex().gap(6).items_start().pl(4)
+          .child(div().size(4).mt(6).rounded(9999).bg(t.muted).flex_none())
+          .child(div().flex_1().text_size(12).line_height("18px").text_color(t.foreground).child(trimmed.slice(2)));
+      }
+      const numMatch = /^(\d+)\.\s+(.*)$/.exec(trimmed);
+      if (numMatch) {
+        return h_flex().gap(6).items_start().pl(4)
+          .child(div().text_size(11).font_mono().text_color(t.muted).flex_none().child(numMatch[1] + "."))
+          .child(div().flex_1().text_size(12).line_height("18px").text_color(t.foreground).child(numMatch[2]));
+      }
+      return div().text_size(12).line_height("18px").text_color(t.foreground).child(l);
+    }));
+  }
+
   renderDetailModal(t, cx) {
     if (!this.detailTask) return div();
     const { slug, i } = this.detailTask;
@@ -1493,20 +1532,73 @@ export default class Todos extends View {
                       ))
                   )
               )
-              // Description section
+              // Description section (Markdown View + Textarea Edit)
               .child(
                 v_flex().gap(6)
-                  .child(div().text_size(11).font_semibold().text_color(t.muted).child("DESCRIPTION & SPECS"))
-                  .child(Input.new(this.modalDescInput).h(34).px(8).rounded(6).border_1().border_color(t.border).bg(t.background).text_size(12).text_color(t.foreground))
                   .child(
-                    h_flex().justify_end()
-                      .child(
-                        div().h(26).px(10).rounded(6).bg(t.raised).border_1().border_color(t.border).cursor_pointer().flex().items_center().justify_center()
-                          .hover((st) => st.bg(t.hover).border_color(t.accent))
-                          .on_click((_e, cx) => this.saveModalDesc(cx))
-                          .child(div().text_size(11).text_color(t.accent).child("Save Description"))
-                      )
+                    h_flex().items_center().justify_between()
+                      .child(div().text_size(11).font_semibold().text_color(t.muted).child("DESCRIPTION & SPECS"))
+                      .when(Boolean(task.description) && !this.modalEditingDesc, (b) => b.child(
+                        div().cursor_pointer().flex().items_center().gap(3).hover((s) => s.opacity(0.8))
+                          .on_click((_e, cx) => {
+                            this.modalEditingDesc = false;
+                            this.modalDescTextarea.set_value(task.description || "");
+                            cx.notify();
+                          })
+                          .child(svg("mods/todos/edit.svg").size(10).text_color(t.accent))
+                          .child(div().text_size(11).text_color(t.accent).child("Edit"))
+                      ))
                   )
+                  // Editing mode: Textarea with scroll and actions
+                  .when(this.modalEditingDesc, (b) => b.child(
+                    v_flex().gap(6).p(4).rounded(8).border_1().border_color(t.accent).bg(t.background)
+                      .child(
+                        Textarea.new(this.modalDescTextarea).h(130).px(8).py(6).rounded(6)
+                          .border_1().border_color(t.border).bg(t.raised + "44")
+                          .text_size(12).text_color(t.foreground)
+                      )
+                      .child(
+                        h_flex().items_center().justify_between().px(4)
+                          .child(div().text_size(10.5).text_color(t.dim).child("Markdown supported (#, -, 1., etc.)"))
+                          .child(
+                            h_flex().gap(6).items_center()
+                              .child(
+                                div().h(26).px(10).rounded(5).cursor_pointer().flex().items_center().justify_center()
+                                  .hover((s) => s.bg(t.hover))
+                                  .on_click((_e, cx) => { this.modalEditingDesc = false; cx.notify(); })
+                                  .child(div().text_size(11).text_color(t.muted).child("Cancel"))
+                              )
+                              .child(
+                                div().h(26).px(12).rounded(5).bg(t.accent).cursor_pointer().flex().items_center().justify_center()
+                                  .hover((s) => s.opacity(0.85))
+                                  .on_click((_e, cx) => this.saveModalDesc(cx))
+                                  .child(div().text_size(11).font_semibold().text_color("#ffffff").child("Save"))
+                              )
+                          )
+                      )
+                  ))
+                  // Reading mode: Formatted Markdown or placeholder to add
+                  .when(!this.modalEditingDesc, (b) => b.child(
+                    Boolean(task.description)
+                      ? div().max_h(180).overflow_y_scrollbar().p(10).rounded(8).border_1().border_color(t.border)
+                          .bg(t.raised + "2a").border_l(3).border_color(t.accent).cursor_pointer()
+                          .tooltip("Click to edit description")
+                          .on_click((_e, cx) => {
+                            this.modalEditingDesc = false;
+                            this.modalDescTextarea.set_value(task.description || "");
+                            cx.notify();
+                          })
+                          .child(this.renderMarkdownBlock(task.description, t))
+                      : div().h(36).px(10).rounded(6).border_1().border_dashed().border_color(t.border).cursor_pointer()
+                          .flex().items_center().gap(6).hover((s) => s.border_color(t.accent).bg(t.raised + "44"))
+                          .on_click((_e, cx) => {
+                            this.modalEditingDesc = false;
+                            this.modalDescTextarea.set_value("");
+                            cx.notify();
+                          })
+                          .child(svg("mods/todos/edit.svg").size(11).text_color(t.muted))
+                          .child(div().text_size(11.5).text_color(t.muted).child("+ Add markdown description / specs..."))
+                  ))
               )
               // Subtasks section
               .child(
