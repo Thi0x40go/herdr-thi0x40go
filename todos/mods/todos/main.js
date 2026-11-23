@@ -1718,7 +1718,7 @@ export default class Todos extends View {
                     v_flex().w_full().gap(6).p(8).rounded(8).border_1().border_color("#ffffff44").bg("#0c2818")
                       .child(
                         Textarea.new(this.modalDescTextarea).w_full().min_h(140).h(180).px(8).py(6).rounded(6)
-                          .border_1().border_color("rgba(255, 255, 255, 0.22)").bg("rgba(0, 0, 0, 0.25)")
+                          .border_1().border_color("#ffffff38").bg("#00000040")
                           .text_size(12).line_height("18px").text_color("#ffffff")
                       )
                       .child(
@@ -1728,7 +1728,7 @@ export default class Todos extends View {
                             h_flex().gap(6).items_center()
                               .child(
                                 div().h(26).px(10).rounded(5).cursor_pointer().flex().items_center().justify_center()
-                                  .bg("rgba(255, 255, 255, 0.12)").hover((s) => s.bg("rgba(255, 255, 255, 0.22)"))
+                                  .bg("#ffffff20").hover((s) => s.bg("#ffffff38"))
                                   .on_click((_e, cx) => { this.modalEditingDesc = false; cx.notify(); })
                                   .child(div().text_size(11).text_color("#ffffff").child("Cancel"))
                               )
@@ -1756,8 +1756,8 @@ export default class Todos extends View {
                             text: "#ffffff",
                             accent: "#4ade80",
                             muted: "#86efac",
-                            codeBg: "rgba(255, 255, 255, 0.12)",
-                            codeBorder: "rgba(255, 255, 255, 0.25)",
+                            codeBg: "#ffffff20",
+                            codeBorder: "#ffffff40",
                             codeText: "#86efac",
                           }))
                       : div().w_full().h(38).px(12).rounded(6).border_1().border_dashed().border_color(t.border).cursor_pointer()
