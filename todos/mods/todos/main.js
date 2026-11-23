@@ -2709,16 +2709,17 @@ export default class Todos extends View {
       return res;
     };
 
-    // A project switch, as the usage rows' plan badges ("Ultra", "Free"): a small
-    // tag with its icon (the one the tabs show when it's on) and name; shaded with
-    // the name in the accent when on, plain and dim when off. A click switches it;
-    // hover says what it does.
-    const toggle = (id, label, icon, on, tip, fn) => h_flex().id(`switch-${id}`).px(5).py(1).gap(4).flex_none().items_center().rounded(4).cursor_pointer()
-      .text_size(10.5).when(on, (el) => el.bg(t.raised).text_color(t.accent)).when(!on, (el) => el.text_color(t.dim))
-      .hover((s) => s.bg(t.hover).text_color(on ? t.accent : t.foreground))
+    // A project switch in the header: Log and Sync toggle buttons in standard size
+    const toggle = (id, label, icon, on, tip, fn) => h_flex().id(`switch-${id}`).h(26).px(8).gap(5).flex_none().items_center().rounded(6).cursor_pointer()
+      .border_1()
+      .when(on, (el) => el.bg(t.accent + "18").border_color(t.accent + "55").text_color(t.accent))
+      .when(!on, (el) => el.bg(t.raised).border_color(t.border).text_color(t.muted))
+      .hover((s) => s.bg(t.hover).text_color(on ? t.accent : t.foreground).border_color(on ? t.accent : t.border))
       .tooltip(`${tip} (${on ? "on" : "off"}: click to turn ${on ? "off" : "on"})`)
       .on_click((_e, cx) => { fn(cx); cx.notify(); })
-      .child(svg(icon).size(10).flex_none()).child(label);
+      .child(svg(icon).size(12).flex_none().text_color(on ? t.accent : t.muted))
+      .child(div().text_size(11.5).font_medium().child(label))
+      .child(div().size(5).rounded(9999).bg(on ? t.accent : t.border));
     const more = (id, label, fn) => div().id(id).px(5).py(2).rounded(4).cursor_pointer().text_size(11).text_color(t.dim)
       .hover((s) => s.bg(t.hover).text_color(t.foreground)).on_click((_e, cx) => { fn(); cx.notify(); }).child(label);
     return div().relative().size_full().overflow_hidden()
