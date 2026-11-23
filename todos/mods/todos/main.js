@@ -104,13 +104,13 @@ function hue(name) {
 }
 
 const prioCol = (p) => {
-  if (!p) return "#797979";
+  if (!p) return "#64748b";
   const norm = String(p).toLowerCase();
-  if (norm === "critical" || norm === "p0" || norm === "urgent") return "#f36458";
+  if (norm === "critical" || norm === "p0" || norm === "urgent") return "#ef4444";
   if (norm === "high" || norm === "p1") return "#f59e0b";
-  if (norm === "medium" || norm === "p2" || norm === "med") return "#0052ef";
-  if (norm === "low" || norm === "p3") return "#797979";
-  return "#797979";
+  if (norm === "medium" || norm === "p2" || norm === "med") return "#3b82f6";
+  if (norm === "low" || norm === "p3") return "#64748b";
+  return "#64748b";
 };
 
 const pad = (n) => String(n).padStart(2, "0");
@@ -634,6 +634,24 @@ export default class Todos extends View {
     this.tagInput = InputState.new({ placeholder: "tag..." });
     this.descFor = null;
     this.taskDescInput = InputState.new({ placeholder: "Description markdown..." });
+
+    // Modal de Detalhes Completo
+    this.detailTask = null; // { slug, i }
+    this.modalTitleInput = InputState.new({ placeholder: "Task title..." });
+    this.modalDescInput = InputState.new({ placeholder: "Markdown description / specs..." });
+    this.modalGroupInput = InputState.new({ placeholder: "CARD-XXXX..." });
+    this.modalSubInput = InputState.new({ placeholder: "Add a subtask..." });
+    this.modalTagInput = InputState.new({ placeholder: "Add a tag..." });
+    this.modalLinkNameInput = InputState.new({ placeholder: "Label (MR, Card, PRD...)" });
+    this.modalLinkUrlInput = InputState.new({ placeholder: "https://..." });
+    this.modalDeleteArmed = false;
+
+    this.modalTitleInput.on("submit", (_e, cx) => this.saveModalTitle(cx));
+    this.modalDescInput.on("submit", (_e, cx) => this.saveModalDesc(cx));
+    this.modalGroupInput.on("submit", (_e, cx) => this.saveModalGroup(cx));
+    this.modalSubInput.on("submit", (_e, cx) => this.saveModalSub(cx));
+    this.modalTagInput.on("submit", (_e, cx) => this.saveModalTag(cx));
+    this.modalLinkUrlInput.on("submit", (_e, cx) => this.saveModalLink(cx));
   }
 
   cyclePrio(cx) {
@@ -1185,6 +1203,457 @@ export default class Todos extends View {
     this.change(e.slug, (items) => (text ? items.map((x, i) => (i === e.i ? { ...x, text, due: due ?? x.due } : x)) : items.filter((_, i) => i !== e.i)), cx);
   }
 
+
+  openDetailModal(x, cx) {
+    this.detailTask = { slug: x.slug, i: x.i };
+    this.modalTitleInput.set_value(x.text || "");
+    this.modalDescInput.set_value(x.description || "");
+    this.modalGroupInput.set_value(x.group || "");
+    this.modalSubInput.set_value("");
+    this.modalTagInput.set_value("");
+    this.modalLinkNameInput.set_value("");
+    this.modalLinkUrlInput.set_value("");
+    this.modalDeleteArmed = false;
+    cx.notify();
+  }
+
+  closeDetailModal(cx) {
+    this.detailTask = null;
+    this.modalDeleteArmed = false;
+    cx.notify();
+  }
+
+  saveModalTitle(cx) {
+    if (!this.detailTask) return;
+    const { slug, i } = this.detailTask;
+    const val = this.modalTitleInput.value().trim();
+    if (!val) return;
+    const was = this.lists[slug]?.items[i], folder = this.lists[slug]?.folder;
+    if (was && folder && val !== was.text) toFile(folder, "rename", was.text, val);
+    this.change(slug, (items) => items.map((it, idx) => (idx === i ? { ...it, text: val } : it)), cx);
+  }
+
+  saveModalDesc(cx) {
+    if (!this.detailTask) return;
+    const { slug, i } = this.detailTask;
+    const val = this.modalDescInput.value().trim();
+    this.change(slug, (items) => items.map((it, idx) => (idx === i ? { ...it, description: val } : it)), cx);
+  }
+
+  saveModalGroup(cx) {
+    if (!this.detailTask) return;
+    const { slug, i } = this.detailTask;
+    const val = this.modalGroupInput.value().trim().toUpperCase().replace(/^#/, "");
+    this.change(slug, (items) => items.map((it, idx) => {
+      if (idx === i) {
+        const meta = { ...(it.meta ?? {}), group: val || null };
+        return { ...it, group: val || null, meta };
+      }
+      return it;
+    }), cx);
+  }
+
+  setModalPrio(prio, cx) {
+    if (!this.detailTask) return;
+    const { slug, i } = this.detailTask;
+    this.change(slug, (items) => items.map((it, idx) => {
+      if (idx === i) {
+        const meta = { ...(it.meta ?? {}), priority: prio };
+        return { ...it, priority: prio, meta };
+      }
+      return it;
+    }), cx);
+  }
+
+  saveModalSub(cx) {
+    if (!this.detailTask) return;
+    const { slug, i } = this.detailTask;
+    const text = this.modalSubInput.value().trim();
+    if (!text) return;
+    this.modalSubInput.set_value("");
+    this.change(slug, (items) => items.map((it, idx) => {
+      if (idx === i) {
+        const subtasks = [...(it.subtasks ?? []), { done: false, text, doneOn: null }];
+        return { ...it, subtasks };
+      }
+      return it;
+    }), cx);
+  }
+
+  toggleModalSub(subIdx, cx) {
+    if (!this.detailTask) return;
+    const { slug, i } = this.detailTask;
+    this.change(slug, (items) => items.map((it, idx) => {
+      if (idx === i) {
+        const nextSubs = it.subtasks.map((sub, sj) => (sj === subIdx ? { ...sub, done: !sub.done, doneOn: sub.done ? null : stamp() } : sub));
+        return { ...it, subtasks: nextSubs };
+      }
+      return it;
+    }), cx);
+  }
+
+  deleteModalSub(subIdx, cx) {
+    if (!this.detailTask) return;
+    const { slug, i } = this.detailTask;
+    this.change(slug, (items) => items.map((it, idx) => {
+      if (idx === i) {
+        const nextSubs = it.subtasks.filter((_, sj) => sj !== subIdx);
+        return { ...it, subtasks: nextSubs };
+      }
+      return it;
+    }), cx);
+  }
+
+  saveModalLink(cx) {
+    if (!this.detailTask) return;
+    const { slug, i } = this.detailTask;
+    const url = this.modalLinkUrlInput.value().trim();
+    if (!url) return;
+    const name = this.modalLinkNameInput.value().trim() || "link";
+    this.modalLinkUrlInput.set_value("");
+    this.modalLinkNameInput.set_value("");
+    this.change(slug, (items) => items.map((it, idx) => {
+      if (idx === i) {
+        const urls = [...(it.urls ?? []), { name, url }];
+        const meta = { ...(it.meta ?? {}), urls };
+        return { ...it, urls, meta };
+      }
+      return it;
+    }), cx);
+  }
+
+  deleteModalLink(linkIdx, cx) {
+    if (!this.detailTask) return;
+    const { slug, i } = this.detailTask;
+    this.change(slug, (items) => items.map((it, idx) => {
+      if (idx === i) {
+        const urls = (it.urls ?? []).filter((_, uj) => uj !== linkIdx);
+        const meta = { ...(it.meta ?? {}), urls };
+        return { ...it, urls, meta };
+      }
+      return it;
+    }), cx);
+  }
+
+  saveModalTag(cx) {
+    if (!this.detailTask) return;
+    const { slug, i } = this.detailTask;
+    const tag = this.modalTagInput.value().trim().replace(/^#/, "");
+    if (!tag) return;
+    this.modalTagInput.set_value("");
+    this.change(slug, (items) => items.map((it, idx) => {
+      if (idx === i) {
+        const tags = [...(it.tags ?? []).filter((t) => t !== tag), tag];
+        const meta = { ...(it.meta ?? {}), tags };
+        return { ...it, tags, meta };
+      }
+      return it;
+    }), cx);
+  }
+
+  deleteModalTag(tag, cx) {
+    if (!this.detailTask) return;
+    const { slug, i } = this.detailTask;
+    this.change(slug, (items) => items.map((it, idx) => {
+      if (idx === i) {
+        const tags = (it.tags ?? []).filter((t) => t !== tag);
+        const meta = { ...(it.meta ?? {}), tags };
+        return { ...it, tags, meta };
+      }
+      return it;
+    }), cx);
+  }
+
+  toggleModalTaskDone(cx) {
+    if (!this.detailTask) return;
+    const { slug, i } = this.detailTask;
+    const item = this.lists[slug]?.items[i];
+    const folder = this.lists[slug]?.folder;
+    if (!item) return;
+    this.change(slug, (items) => items.map((y, j) => (j === i ? { ...y, done: !y.done, doneOn: y.done ? null : stamp() } : y)), cx);
+    if (folder) {
+      cross(folder, item.done ? "undo" : "done", item.text);
+      this.fileAt[folder] = 0;
+    }
+  }
+
+  deleteModalTask(cx) {
+    if (!this.detailTask) return;
+    const { slug, i } = this.detailTask;
+    const item = this.lists[slug]?.items[i];
+    const folder = this.lists[slug]?.folder;
+    this.closeDetailModal(cx);
+    this.change(slug, (items) => items.filter((_, j) => j !== i), cx);
+    if (folder && item) toFile(folder, "rm", item.text);
+  }
+
+  renderDetailModal(t, cx) {
+    if (!this.detailTask) return div();
+    const { slug, i } = this.detailTask;
+    const task = this.lists[slug]?.items[i];
+    if (!task) {
+      this.detailTask = null;
+      return null;
+    }
+    const folder = this.lists[slug]?.folder;
+    const key = `${slug}:${i}`;
+    const prios = [
+      { id: "Critical", label: "Critical", col: "#ef4444" },
+      { id: "High", label: "High", col: "#f59e0b" },
+      { id: "Medium", label: "Medium", col: "#3b82f6" },
+      { id: "Low", label: "Low", col: "#64748b" },
+      { id: null, label: "None", col: t.dim },
+    ];
+    const subtasks = task.subtasks ?? [];
+    const subDone = subtasks.filter((s) => s.done).length;
+    const subTotal = subtasks.length;
+    const pct = subTotal > 0 ? Math.round((subDone / subTotal) * 100) : 0;
+
+    return div().id("detail-modal-drawer").absolute().inset_0().bg(t.background).rounded(10)
+      .border_1().border_color(t.border).shadow_lg().overflow_hidden().flex().flex_col()
+          // Header
+          .child(
+            h_flex().h(46).px(16).items_center().border_b(1).border_color(t.border).gap(8).flex_none()
+              .child(svg("mods/todos/edit.svg").size(14).text_color(t.accent))
+              .child(div().font_semibold().text_size(13).child("Task Details"))
+              .when(Boolean(folder), (el) => el.child(
+                div().px(6).py(1.5).rounded(9999).bg(this.color(folder, t) + "22").text_size(10.5).font_medium()
+                  .text_color(this.color(folder, t)).child(this.name(folder))
+              ))
+              .child(div().flex_1())
+              .child(
+                div().id("btn-close-modal").size(24).rounded(6).cursor_pointer().flex().items_center().justify_center()
+                  .hover((s) => s.bg(t.raised))
+                  .on_click((_e, cx) => this.closeDetailModal(cx))
+                  .child(svg("mods/workspace-chrome/x.svg").size(12).text_color(t.muted))
+              )
+          )
+          // Body (Scrollable)
+          .child(
+            v_flex().flex_1().min_h(0).overflow_y_scrollbar().p(16).gap(16)
+              // Title row with main checkbox
+              .child(
+                h_flex().gap(10).items_start()
+                  .child(
+                    div().id("modal-main-tick").size(20).mt(4).rounded(6).border(2).cursor_pointer().border_color(task.done ? t.ansi2 : t.muted)
+                      .when(task.done, (b) => b.bg(t.ansi2).flex().items_center().justify_center().child(svg("mods/workspace-chrome/check.svg").size(12).text_color(t.background)))
+                      .on_click((_e, cx) => this.toggleModalTaskDone(cx))
+                  )
+                  .child(
+                    v_flex().flex_1().gap(4)
+                      .child(
+                        h_flex().gap(6).items_center()
+                          .child(Input.new(this.modalTitleInput).flex_1().h(32).px(8).rounded(6).border_1().border_color(t.border).bg(t.background).text_size(14).font_semibold().text_color(t.foreground))
+                          .child(
+                            div().h(32).px(10).rounded(6).bg(t.accent + "22").border_1().border_color(t.accent).cursor_pointer().flex().items_center().justify_center()
+                              .hover((st) => st.bg(t.accent + "44"))
+                              .on_click((_e, cx) => this.saveModalTitle(cx))
+                              .child(div().text_size(11.5).font_semibold().text_color(t.accent).child("Save"))
+                          )
+                      )
+                      .when(task.done && Boolean(task.doneOn), (b) => b.child(div().text_size(10.5).text_color(t.dim).child(`Done: ${task.doneOn}`)))
+                      .when(!task.done && Boolean(task.due), (b) => b.child(div().text_size(10.5).text_color(overdue(task.due) ? t.ansi1 : t.dim).child(`Due: ${task.due}`)))
+                  )
+              )
+              // Priority selector bar
+              .child(
+                v_flex().gap(6)
+                  .child(div().text_size(11).font_semibold().text_color(t.muted).child("PRIORITY"))
+                  .child(
+                    h_flex().gap(6).flex_wrap().children(
+                      prios.map((pr) => {
+                        const isCur = String(task.priority || "").toLowerCase() === String(pr.id || "").toLowerCase();
+                        return h_flex().h(26).px(10).gap(4).items_center().rounded(9999).cursor_pointer()
+                          .border_1().border_color(isCur ? pr.col : t.border)
+                          .bg(isCur ? pr.col + "26" : t.raised + "55")
+                          .hover((st) => st.bg(isCur ? pr.col + "33" : t.hover))
+                          .on_click((_e, cx) => this.setModalPrio(pr.id, cx))
+                          .child(div().size(7).rounded(9999).bg(pr.col))
+                          .child(div().text_size(11).font_semibold().text_color(isCur ? pr.col : t.muted).child(pr.label));
+                      })
+                    )
+                  )
+              )
+              // Card / Group row
+              .child(
+                v_flex().gap(6)
+                  .child(div().text_size(11).font_semibold().text_color(t.muted).child("CARD / GROUP"))
+                  .child(
+                    h_flex().gap(6).items_center()
+                      .child(Input.new(this.modalGroupInput).w(180).h(28).px(8).rounded(6).border_1().border_color(t.border).bg(t.background).text_size(12).text_color(t.foreground))
+                      .child(
+                        div().h(28).px(10).rounded(6).bg(t.raised).border_1().border_color(t.border).cursor_pointer().flex().items_center().justify_center()
+                          .hover((st) => st.bg(t.hover))
+                          .on_click((_e, cx) => this.saveModalGroup(cx))
+                          .child(div().text_size(11).text_color(t.foreground).child("Update"))
+                      )
+                      .when(Boolean(task.group), (b) => b.child(
+                        div().px(8).py(2).rounded(9999).bg(t.ansi6 + "22").border_1().border_color(t.ansi6 + "44")
+                          .text_size(11).font_semibold().text_color(t.ansi6).child(`#${task.group}`)
+                      ))
+                  )
+              )
+              // Description section
+              .child(
+                v_flex().gap(6)
+                  .child(div().text_size(11).font_semibold().text_color(t.muted).child("DESCRIPTION & SPECS"))
+                  .child(Input.new(this.modalDescInput).h(34).px(8).rounded(6).border_1().border_color(t.border).bg(t.background).text_size(12).text_color(t.foreground))
+                  .child(
+                    h_flex().justify_end()
+                      .child(
+                        div().h(26).px(10).rounded(6).bg(t.raised).border_1().border_color(t.border).cursor_pointer().flex().items_center().justify_center()
+                          .hover((st) => st.bg(t.hover).border_color(t.accent))
+                          .on_click((_e, cx) => this.saveModalDesc(cx))
+                          .child(div().text_size(11).text_color(t.accent).child("Save Description"))
+                      )
+                  )
+              )
+              // Subtasks section
+              .child(
+                v_flex().gap(6)
+                  .child(
+                    h_flex().items_center().justify_between()
+                      .child(div().text_size(11).font_semibold().text_color(t.muted).child(`SUBTASKS (${subDone}/${subTotal})`))
+                      .when(subTotal > 0, (b) => b.child(div().text_size(10.5).text_color(t.dim).child(`${pct}% complete`)))
+                  )
+                  // Progress bar
+                  .when(subTotal > 0, (b) => b.child(
+                    div().h(4).w_full().rounded(9999).bg(t.raised).overflow_hidden()
+                      .child(div().h_full().w(`${pct}%`).bg(pct === 100 ? t.ansi2 : t.accent))
+                  ))
+                  // List of subtasks
+                  .when(subTotal > 0, (b) => b.child(
+                    v_flex().gap(4).rounded(8).p(6).bg(t.raised + "33").border_1().border_color(t.border)
+                      .children(subtasks.map((s, si) =>
+                        h_flex().id(`modal-sub-${si}`).min_h(26).px(6).py(2).gap(8).items_center().rounded(6).hover((st) => st.bg(t.hover))
+                          .child(
+                            div().size(14).rounded(4).border_1().cursor_pointer().border_color(s.done ? t.ansi2 : t.muted)
+                              .when(s.done, (bx) => bx.bg(t.ansi2).flex().items_center().justify_center().child(svg("mods/workspace-chrome/check.svg").size(8).text_color(t.background)))
+                              .on_click((_e, cx) => this.toggleModalSub(si, cx))
+                          )
+                          .child(div().flex_1().min_w(0).truncate().text_size(12).text_color(s.done ? t.dim : t.foreground).when(s.done, (bx) => bx.line_through()).child(s.text))
+                          .child(
+                            div().size(16).rounded(4).cursor_pointer().flex().items_center().justify_center().hover((st) => st.bg(t.raised))
+                              .on_click((_e, cx) => this.deleteModalSub(si, cx))
+                              .child(svg("mods/workspace-chrome/x.svg").size(9).text_color(t.muted))
+                          )
+                      ))
+                  ))
+                  // Add subtask input
+                  .child(
+                    h_flex().gap(6).items_center()
+                      .child(Input.new(this.modalSubInput).flex_1().h(28).px(8).rounded(6).border_1().border_color(t.border).bg(t.background).text_size(12).text_color(t.foreground))
+                      .child(
+                        div().h(28).px(10).rounded(6).bg(t.accent + "22").border_1().border_color(t.accent).cursor_pointer().flex().items_center().justify_center()
+                          .hover((st) => st.bg(t.accent + "44"))
+                          .on_click((_e, cx) => this.saveModalSub(cx))
+                          .child(div().text_size(11.5).font_semibold().text_color(t.accent).child("+ Add"))
+                      )
+                  )
+              )
+              // Links & URLs section
+              .child(
+                v_flex().gap(6)
+                  .child(div().text_size(11).font_semibold().text_color(t.muted).child("LINKS & REFERENCES"))
+                  .when(Boolean(task.urls?.length), (b) => b.child(
+                    h_flex().gap(6).flex_wrap().children((task.urls ?? []).map((u, ui) =>
+                      h_flex().h(26).px(8).rounded(6).bg(t.background).border_1().border_color(t.border).gap(5).items_center()
+                        .child(
+                          h_flex().gap(4).items_center().cursor_pointer()
+                            .on_click((_e, _cx) => { exec("xdg-open", [u.url]).catch(() => null); })
+                            .child(svg("mods/todos/link.svg").size(11).text_color(t.ansi4))
+                            .child(div().text_size(11.5).text_color(t.ansi4).child(u.name || "link"))
+                        )
+                        .child(
+                          div().size(14).rounded(3).cursor_pointer().flex().items_center().justify_center().hover((st) => st.text_color(t.ansi1))
+                            .on_click((_e, cx) => this.deleteModalLink(ui, cx))
+                            .child(svg("mods/workspace-chrome/x.svg").size(8).text_color(t.muted))
+                        )
+                    ))
+                  ))
+                  .child(
+                    h_flex().gap(6).items_center()
+                      .child(Input.new(this.modalLinkNameInput).w(100).h(26).px(6).rounded(5).border_1().border_color(t.border).bg(t.background).text_size(11.5).text_color(t.foreground))
+                      .child(Input.new(this.modalLinkUrlInput).flex_1().h(26).px(6).rounded(5).border_1().border_color(t.border).bg(t.background).text_size(11.5).text_color(t.foreground))
+                      .child(
+                        div().h(26).px(9).rounded(5).bg(t.raised).border_1().border_color(t.border).cursor_pointer().flex().items_center().justify_center()
+                          .hover((st) => st.bg(t.hover).border_color(t.accent))
+                          .on_click((_e, cx) => this.saveModalLink(cx))
+                          .child(div().text_size(11).text_color(t.accent).child("+ Link"))
+                      )
+                  )
+              )
+              // Tags section
+              .child(
+                v_flex().gap(6)
+                  .child(div().text_size(11).font_semibold().text_color(t.muted).child("TAGS"))
+                  .child(
+                    h_flex().gap(6).flex_wrap().items_center()
+                      .children((task.tags ?? []).map((tg) =>
+                        h_flex().h(24).px(8).gap(4).items_center().rounded(9999).bg(t.raised).border_1().border_color(t.border)
+                          .child(div().text_size(11).text_color(t.ansi6).child(`#${tg}`))
+                          .child(
+                            div().size(12).cursor_pointer().flex().items_center().justify_center().hover((st) => st.text_color(t.ansi1))
+                              .on_click((_e, cx) => this.deleteModalTag(tg, cx))
+                              .child(svg("mods/workspace-chrome/x.svg").size(8).text_color(t.muted))
+                          )
+                      ))
+                      .child(Input.new(this.modalTagInput).w(90).h(24).px(6).rounded(4).border_1().border_color(t.border).bg(t.background).text_size(11).text_color(t.foreground))
+                      .child(
+                        div().h(24).px(8).rounded(4).bg(t.raised).border_1().border_color(t.border).cursor_pointer().flex().items_center().justify_center()
+                          .hover((st) => st.bg(t.hover))
+                          .on_click((_e, cx) => this.saveModalTag(cx))
+                          .child(div().text_size(11).text_color(t.accent).child("+ Tag"))
+                      )
+                  )
+              )
+          )
+          // Footer
+          .child(
+            h_flex().h(48).px(16).items_center().border_t(1).border_color(t.border).bg(t.raised + "44").gap(8).flex_none()
+              .child(
+                div().h(28).px(10).rounded(6).cursor_pointer().flex().items_center().justify_center()
+                  .border_1().border_color(this.modalDeleteArmed ? t.ansi1 : t.border)
+                  .bg(this.modalDeleteArmed ? t.ansi1 + "22" : t.background)
+                  .hover((s) => s.bg(t.hover))
+                  .on_click((_e, cx) => {
+                    if (!this.modalDeleteArmed) {
+                      this.modalDeleteArmed = true;
+                      cx.spawn(async (cx) => { await cx.sleep(3000); this.modalDeleteArmed = false; cx.notify(); });
+                    } else {
+                      this.deleteModalTask(cx);
+                    }
+                    cx.notify();
+                  })
+                  .child(div().text_size(11.5).text_color(this.modalDeleteArmed ? t.ansi1 : t.dim).child(this.modalDeleteArmed ? "Confirm Delete?" : "Delete"))
+              )
+              .when(this.agentChoices?.length > 0, (el) => el.child(
+                div().h(28).px(10).rounded(6).bg(t.background).border_1().border_color(t.border).cursor_pointer().flex().items_center().justify_center().gap(4)
+                  .hover((s) => s.bg(t.hover).border_color(t.accent))
+                  .on_click((_e, cx) => {
+                    this.closeDetailModal(cx);
+                    this.startFor = key;
+                    cx.notify();
+                  })
+                  .child(svg("mods/todos/bot.svg").size(12).text_color(t.muted))
+                  .child(div().text_size(11.5).text_color(t.foreground).child("Run Agent"))
+              ))
+              .child(div().flex_1())
+              .child(
+                div().h(28).px(12).rounded(6).bg(task.done ? t.raised : t.ansi2 + "22").border_1().border_color(task.done ? t.border : t.ansi2).cursor_pointer().flex().items_center().justify_center()
+                  .hover((s) => s.bg(task.done ? t.hover : t.ansi2 + "33"))
+                  .on_click((_e, cx) => this.toggleModalTaskDone(cx))
+                  .child(div().text_size(11.5).font_semibold().text_color(task.done ? t.muted : t.ansi2).child(task.done ? "Mark as Open" : "Mark as Done"))
+              )
+              .child(
+                div().h(28).px(12).rounded(6).bg(t.accent).cursor_pointer().flex().items_center().justify_center()
+                  .hover((s) => s.opacity(0.85))
+                  .on_click((_e, cx) => this.closeDetailModal(cx))
+                  .child(div().text_size(11.5).font_semibold().text_color("#ffffff").child("Close"))
+              )
+          );
+  }
+
   render(cx) {
     const t = theme();
     const hereSlug = this.here && keyOf(this.here);
@@ -1241,107 +1710,85 @@ export default class Todos extends View {
       const subDone = x.subtasks?.filter(s => s.done).length ?? 0;
       const subTotal = x.subtasks?.length ?? 0;
       const isExp = this.expanded?.has(key);
-      const hasDetails = subTotal > 0 || Boolean(x.description) || Boolean(x.urls?.length) || Boolean(x.tags?.length);
-      return h_flex().id(`todo-${key}`).min_h(38).px(10).py(4).gap(8).items_center().rounded(8)
+      const hasSubtasks = subTotal > 0;
+      return h_flex().id(`todo-${key}`).min_h(36).px(10).py(4).gap(8).items_center().rounded(8)
         .when(on, (el) => el.bg(t.accent + "38")).hover((s) => s.bg(on ? t.accent + "38" : t.hover))
         .on_click((e, cx) => { if (multi(e) && !editing && this.filter) this.pick(x, e, cx); })
         .on_hover((on, cx) => { this.hover = on ? key : this.hover === key ? null : this.hover; cx.notify(); })
-        .child(div().id(`tick-${key}`).size(16).flex_none().rounded(8).border(1.5).cursor_pointer().border_color(c)
-          .when(x.done, (el) => el.bg(c).flex().items_center().justify_center().child(svg("mods/workspace-chrome/check.svg").size(10).text_color(t.background)))
+        // Checkbox pai
+        .child(div().id(`tick-${key}`).size(16).flex_none().rounded(6).border(1.5).cursor_pointer().border_color(x.done ? t.ansi2 : c)
+          .when(x.done, (el) => el.bg(t.ansi2).flex().items_center().justify_center().child(svg("mods/workspace-chrome/check.svg").size(10).text_color(t.background)))
           .on_click((e, cx) => {
-            if (multi(e) && this.filter) return; // the row picks it
+            if (multi(e) && this.filter) return;
             this.change(x.slug, (items) => items.map((y, j) => (j === x.i ? { ...y, done: !y.done, doneOn: y.done ? null : stamp() } : y)), cx);
             cross(x.folder, x.done ? "undo" : "done", x.text);
             this.fileAt[x.folder] = 0;
           }))
+        // Prioridade do pai
         .when(Boolean(x.priority) && !editing, (el) => el.child(
-          div().px(6).py(1.5).rounded(9999).border_1().border_color(prioColor + "55").bg(prioColor + "18")
+          div().px(6).py(1).rounded(9999).border_1().border_color(prioColor + "44").bg(prioColor + "14")
             .text_size(10).font_semibold().text_color(prioColor).cursor_pointer()
-            .hover((st) => st.bg(prioColor + "33"))
-            .tooltip("Click to change priority")
+            .hover((st) => st.bg(prioColor + "28"))
+            .tooltip(`Priority: ${x.priority} (click to cycle)`)
             .on_click((_e, cx) => this.cycleTaskPrio(key, cx))
             .child(x.priority)
         ))
+        // Card / Grupo
         .when(Boolean(x.group) && !editing && !x.text.toUpperCase().includes(x.group), (el) => el.child(
-          div().px(6).py(1.5).rounded(9999).bg(t.ansi6 + "18").border_1().border_color(t.ansi6 + "44")
-            .text_size(10.5).font_semibold().text_color(t.ansi6).child(`#${x.group}`)
+          div().px(6).py(1).rounded(9999).bg(t.ansi6 + "18").border_1().border_color(t.ansi6 + "44")
+            .text_size(10).font_semibold().text_color(t.ansi6).child(`#${x.group}`)
         ))
-        .when(hasDetails && !editing, (el) => el.child(
-          h_flex().id(`exp-${key}`).h(22).px(6).gap(3).items_center().rounded(6).bg(t.raised).cursor_pointer()
+        // Accordion chevron badge de subtasks
+        .when(hasSubtasks && !editing, (el) => el.child(
+          h_flex().id(`exp-${key}`).h(20).px(5).gap(3).items_center().rounded(5).bg(t.raised).cursor_pointer()
             .border_1().border_color(t.border)
             .hover((st) => st.bg(t.hover).border_color(t.accent))
+            .tooltip(isExp ? "Collapse subtasks" : "Expand subtasks")
             .on_click((_e, cx) => { cx.stop_propagation(); this.toggleExpand(key, cx); })
-            .child(svg(`mods/workspace-chrome/chevron-${isExp ? "down" : "right"}.svg`).size(9).text_color(t.muted))
-            .when(subTotal > 0, (b) => b.child(div().text_size(10).font_semibold().text_color(subDone === subTotal ? t.ansi2 : t.muted).child(`${subDone}/${subTotal}`)))
-            .when(Boolean(x.description) && subTotal === 0, (b) => b.child(div().text_size(10).text_color(t.dim).child("desc")))
-            .when(Boolean(x.urls?.length) && subTotal === 0 && !x.description, (b) => b.child(div().text_size(10).text_color(t.ansi4).child("links")))
+            .child(svg(`mods/workspace-chrome/chevron-${isExp ? "down" : "right"}.svg`).size(8).text_color(t.muted))
+            .child(div().text_size(10).font_semibold().text_color(subDone === subTotal ? t.ansi2 : t.muted).child(`${subDone}/${subTotal}`))
         ))
+        // Texto da tarefa - SEMPRE truncate, sem tremor no hover! Clique abre modal de detalhes
         .child(editing
           ? Input.new(this.editInput).flex_1().h(28).px(8).rounded(6).border_1().border_color(t.accent).bg(t.background).text_size(13).text_color(t.foreground)
           : div().id(`text-${key}`).flex_1().min_w(0).text_size(13).line_height("19px").text_color(x.done ? t.dim : t.foreground).when(x.done, (el) => el.line_through())
-            .when(!hovered, (el) => el.truncate()).when(hovered, (el) => el.whitespace_normal().py(4))
-            .on_click((e, cx) => { if (e.click_count === 2 && !multi(e)) { this.editing = { slug: x.slug, i: x.i }; this.editInput.set_value(x.text + (x.due ? ` @${fmtDate(new Date(`${x.due.split(" ")[0]}T00:00:00`))}${x.due.includes(" ") ? ` ${fmtTime(x.due.split(" ")[1])}` : ""}` : "")); this.editInput.focus(); cx.notify(); } })
-            .child(x.text))
-        .when(Boolean(meta) && !editing && !(hovered && !x.done), (el) => el.child(div().flex_none().text_size(11).text_color(!x.done && overdue(x.due) ? t.ansi1 : t.dim).child(meta)))
-        .when(!this.filter && !editing && !(hovered && !x.done), (el) => el.child(div().flex_none().max_w(110).truncate().text_right().text_size(11).text_color(c).child(this.name(x.folder))))
-        // Hover action toolbar
-        .when(hovered && !editing, (el) => el.child(
-          h_flex().id(`actions-${key}`).gap(3).items_center().flex_none()
-            .child(h_flex().id(`act-prio-${key}`).h(22).px(6).gap(2).items_center().rounded(9999).cursor_pointer()
-              .bg(t.raised).border_1().border_color(t.border).hover((s) => s.bg(t.hover))
-              .tooltip(`Priority: ${x.priority || "none"} (click to change)`)
-              .on_click((_e, cx) => this.cycleTaskPrio(key, cx))
-              .child(div().text_size(10).font_semibold().text_color(x.priority ? prioCol(x.priority) : t.muted).child(x.priority || "!Prio")))
-            .child(h_flex().id(`act-sub-${key}`).h(22).px(6).gap(2).items_center().rounded(9999).cursor_pointer()
-              .bg(t.raised).border_1().border_color(t.border).hover((s) => s.bg(t.hover))
-              .tooltip("Add subtask")
-              .on_click((_e, cx) => {
-                this.expanded.add(key);
-                this.subFor = key;
-                this.subInput.set_value("");
-                this.subInput.focus();
-                cx.notify();
-              })
-              .child(div().text_size(10.5).text_color(t.ansi2).child("+Sub")))
-            .child(h_flex().id(`act-link-${key}`).h(22).px(6).gap(2).items_center().rounded(9999).cursor_pointer()
-              .bg(t.raised).border_1().border_color(t.border).hover((s) => s.bg(t.hover))
-              .tooltip("Add link/URL")
-              .on_click((_e, cx) => {
-                this.expanded.add(key);
-                this.linkFor = key;
-                this.linkNameInput.set_value("");
-                this.linkUrlInput.set_value("");
-                cx.notify();
-              })
-              .child(svg("mods/todos/link.svg").size(10).text_color(t.ansi4)))
-            .child(h_flex().id(`act-tag-${key}`).h(22).px(6).gap(2).items_center().rounded(9999).cursor_pointer()
-              .bg(t.raised).border_1().border_color(t.border).hover((s) => s.bg(t.hover))
-              .tooltip("Add tag")
-              .on_click((_e, cx) => {
-                this.expanded.add(key);
-                this.tagFor = key;
-                this.tagInput.set_value("");
-                cx.notify();
-              })
-              .child(svg("mods/todos/tag.svg").size(10).text_color(t.ansi6)))
-            .child(div().id(`act-edit-${key}`).size(22).flex().items_center().justify_center().rounded(5).cursor_pointer()
-              .hover((s) => s.bg(t.raised)).tooltip("Edit title")
-              .on_click((_e, cx) => {
+            .truncate().cursor_pointer()
+            .tooltip(x.text.length > 40 ? x.text : "Click to view details")
+            .on_click((e, cx) => {
+              if (e.click_count === 2 && !multi(e)) {
                 this.editing = { slug: x.slug, i: x.i };
                 this.editInput.set_value(x.text + (x.due ? ` @${fmtDate(new Date(`${x.due.split(" ")[0]}T00:00:00`))}${x.due.includes(" ") ? ` ${fmtTime(x.due.split(" ")[1])}` : ""}` : ""));
                 this.editInput.focus();
                 cx.notify();
-              })
+              } else if (!multi(e)) {
+                this.openDetailModal(x, cx);
+              }
+            })
+            .child(x.text))
+        // Metadados (data / vencimento)
+        .when(Boolean(meta) && !editing, (el) => el.child(div().flex_none().text_size(11).text_color(!x.done && overdue(x.due) ? t.ansi1 : t.dim).child(meta)))
+        // Nome da pasta / projeto
+        .when(!this.filter && !editing, (el) => el.child(div().flex_none().max_w(100).truncate().text_right().text_size(11).text_color(c).child(this.name(x.folder))))
+        // Acoes discretas no hover
+        .when(hovered && !editing, (el) => el.child(
+          h_flex().id(`actions-${key}`).gap(2).items_center().flex_none()
+            .child(div().id(`act-modal-${key}`).size(22).flex().items_center().justify_center().rounded(5).cursor_pointer()
+              .hover((s) => s.bg(t.raised)).tooltip("View details / edit")
+              .on_click((_e, cx) => this.openDetailModal(x, cx))
               .child(svg("mods/todos/edit.svg").size(11).text_color(t.muted)))
-            .when(!x.done && this.agentChoices.length > 0, (b) => b.child(
+            .when(this.agentChoices.length > 0 && !x.done, (el) => el.child(
               div().id(`start-${key}`).size(22).flex().items_center().justify_center().rounded(5).cursor_pointer()
-                .when(this.startFor === key, (st) => st.bg(t.selected))
-                .hover((s) => s.bg(t.raised)).tooltip("Send to agent")
+                .when(this.startFor === key, (el) => el.bg(t.selected))
+                .hover((s) => s.bg(t.raised)).tooltip("Run agent")
                 .on_click((_e, cx) => { this.pickOpen = false; this.startFor = this.startFor === key ? null : key; cx.notify(); })
-                .child(svg("mods/todos/bot.svg").size(11).text_color(t.muted))))
+                .child(svg("mods/todos/bot.svg").size(11).text_color(t.muted))
+            ))
             .child(div().id(`del-${key}`).size(22).flex().items_center().justify_center().rounded(5).cursor_pointer()
-              .hover((s) => s.bg(t.raised)).tooltip("Delete")
-              .on_click((_e, cx) => { this.change(x.slug, (items) => items.filter((_, j) => j !== x.i), cx); toFile(x.folder, "rm", x.text); })
+              .hover((s) => s.bg(t.raised)).tooltip("Delete task")
+              .on_click((_e, cx) => {
+                this.change(x.slug, (items) => items.filter((_, j) => j !== x.i), cx);
+                toFile(x.folder, "rm", x.text);
+              })
               .child(svg("mods/workspace-chrome/x.svg").size(10).text_color(t.muted)))
         ));
     };
@@ -1433,73 +1880,15 @@ export default class Todos extends View {
       const key = `${x.slug}:${x.i}`;
       const subtasks = x.subtasks ?? [];
       const adding = this.subFor === key;
-      const editingDesc = this.descFor === key;
-      const addingTag = this.tagFor === key;
-      const addingLink = this.linkFor === key;
-      const hasDetails = Boolean(x.tags?.length || x.description || x.urls?.length || subtasks.length);
-      const isAction = adding || editingDesc || addingTag || addingLink;
-      if (!hasDetails && !isAction) {
+      if (!subtasks.length && !adding) {
         this.expanded.delete(key);
         return null;
       }
-      return v_flex().id(`details-${key}`).ml(34).mr(10).mb(6).p(10).gap(8).rounded(8).border_1().border_color(t.border).bg(t.raised + "33")
-        // Tags section (if any or adding)
-        .when((x.tags && x.tags.length > 0) || addingTag, (el) => el.child(
-          h_flex().gap(6).items_center().flex_wrap()
-            .children((x.tags ?? []).map((tg) =>
-              h_flex().h(22).px(7).gap(4).items_center().rounded(9999).bg(t.raised).border_1().border_color(t.border)
-                .child(div().text_size(10.5).text_color(t.ansi6).child(`#${tg}`))
-                .child(div().size(12).cursor_pointer().flex().items_center().justify_center().hover((s) => s.text_color(t.ansi1))
-                  .on_click((_e, cx) => this.removeTaskTag(key, tg, cx))
-                  .child(svg("mods/workspace-chrome/x.svg").size(8).text_color(t.muted)))))
-            .when(addingTag, (b) => b
-              .child(Input.new(this.tagInput).w(90).h(24).px(6).rounded(4).border_1().border_color(t.border).bg(t.background).text_size(11).text_color(t.foreground))
-              .child(div().h(24).px(8).rounded(4).bg(t.raised).border_1().border_color(t.border).cursor_pointer().flex().items_center().justify_center()
-                .hover((st) => st.bg(t.hover)).on_click((_e, cx) => this.saveTaskTag(cx))
-                .child(div().text_size(11).text_color(t.accent).child("Save")))
-              .child(div().size(16).cursor_pointer().flex().items_center().justify_center()
-                .on_click((_e, cx) => { this.tagFor = null; this.closeAction(key, cx); })
-                .child(svg("mods/workspace-chrome/x.svg").size(9).text_color(t.muted))))
-        ))
-        // Description block
-        .when(Boolean(x.description) || editingDesc, (el) => el.child(
-          editingDesc
-            ? h_flex().gap(6).items_center()
-              .child(Input.new(this.taskDescInput).flex_1().h(28).px(8).rounded(6).border_1().border_color(t.accent).bg(t.background).text_size(12).text_color(t.foreground))
-              .child(div().h(28).px(10).rounded(6).bg(t.raised).border_1().border_color(t.border).cursor_pointer().flex().items_center().justify_center()
-                .hover((st) => st.bg(t.hover)).on_click((_e, cx) => this.saveTaskDesc(cx))
-                .child(div().text_size(11).font_semibold().text_color(t.accent).child("Save")))
-              .child(div().size(20).cursor_pointer().flex().items_center().justify_center()
-                .on_click((_e, cx) => { this.descFor = null; this.closeAction(key, cx); })
-                .child(svg("mods/workspace-chrome/x.svg").size(10).text_color(t.muted)))
-            : h_flex().gap(6).items_start()
-              .child(div().flex_1().px(10).py(6).rounded(6).bg(t.background).border_l_3().border_color(t.accent).text_size(12).line_height("18px").text_color(t.dim).child(x.description))
-              .child(div().size(22).flex().items_center().justify_center().rounded(5).cursor_pointer().hover((st) => st.bg(t.hover))
-                .tooltip("Edit description")
-                .on_click((_e, cx) => {
-                  this.descFor = key;
-                  this.taskDescInput.set_value(x.description || "");
-                  this.taskDescInput.focus();
-                  cx.notify();
-                })
-                .child(svg("mods/todos/edit.svg").size(11).text_color(t.muted)))
-        ))
-        // URLs list
-        .when(Boolean(x.urls && x.urls.length > 0), (el) => el.child(
-          h_flex().gap(6).flex_wrap().children(x.urls.map((u, ui) =>
-            h_flex().id(`url-${key}-${ui}`).h(24).px(8).rounded(6).bg(t.background).border_1().border_color(t.border).gap(5).items_center().cursor_pointer()
-              .hover((st) => st.bg(t.hover).border_color(t.accent))
-              .on_click((_e, _cx) => {
-                exec("xdg-open", [u.url]).catch(() => null);
-              })
-              .child(svg("mods/todos/link.svg").size(11).text_color(t.ansi4))
-              .child(div().text_size(11.5).text_color(t.ansi4).child(u.name || "link"))
-          ))
-        ))
+      return v_flex().id(`details-${key}`).ml(34).mr(10).mb(6).p(8).gap(6).rounded(8).border_l(2).border_color(t.accent).bg(t.raised + "22")
         // Subtasks list
-        .when(subtasks.length > 0, (el) => el.children(subtasks.map((s, si) =>
-          h_flex().id(`sub-${key}-${si}`).min_h(26).px(6).py(2).gap(8).items_center().rounded(6).hover((st) => st.bg(t.hover))
-            .child(div().id(`subtick-${key}-${si}`).size(14).flex_none().rounded(5).border_1().cursor_pointer().border_color(s.done ? t.ansi2 : t.muted)
+        .children(subtasks.map((s, si) =>
+          h_flex().id(`sub-${key}-${si}`).min_h(24).px(6).py(2).gap(8).items_center().rounded(5).hover((st) => st.bg(t.hover))
+            .child(div().id(`subtick-${key}-${si}`).size(13).flex_none().rounded(4).border_1().cursor_pointer().border_color(s.done ? t.ansi2 : t.muted)
               .when(s.done, (b) => b.bg(t.ansi2).flex().items_center().justify_center().child(svg("mods/workspace-chrome/check.svg").size(8).text_color(t.background)))
               .on_click((_e, cx) => {
                 this.change(x.slug, (items) => items.map((it, j) => {
@@ -1516,41 +1905,46 @@ export default class Todos extends View {
                 this.change(x.slug, (items) => items.map((it, j) => {
                   if (j === x.i) {
                     const nextSubs = it.subtasks.filter((_, sj) => sj !== si);
-                    if (!nextSubs.length && !it.description && !it.urls?.length && !it.tags?.length) {
-                      this.expanded.delete(key);
-                    }
+                    if (!nextSubs.length) this.expanded.delete(key);
                     return { ...it, subtasks: nextSubs };
                   }
                   return it;
                 }), cx);
               })
-              .child(svg("mods/workspace-chrome/x.svg").size(10).text_color(t.muted)))
-        )))
-        // Inline link adder form
-        .when(addingLink, (el) => el.child(
-          h_flex().gap(6).items_center().p(4).rounded(6).bg(t.background).border_1().border_color(t.border)
-            .child(Input.new(this.linkNameInput).w(80).h(24).px(6).rounded(4).border_1().border_color(t.border).bg(t.raised).text_size(11).text_color(t.foreground))
-            .child(Input.new(this.linkUrlInput).flex_1().h(24).px(6).rounded(4).border_1().border_color(t.border).bg(t.raised).text_size(11).text_color(t.foreground))
-            .child(div().h(24).px(9).rounded(4).bg(t.accent + "22").border_1().border_color(t.accent).cursor_pointer()
-              .hover((st) => st.bg(t.accent + "44")).flex().items_center().justify_center()
-              .on_click((_e, cx) => this.saveTaskLink(cx))
-              .child(div().text_size(11).font_semibold().text_color(t.accent).child("Add")))
-            .child(div().size(20).cursor_pointer().flex().items_center().justify_center()
-              .on_click((_e, cx) => { this.linkFor = null; this.closeAction(key, cx); })
-              .child(svg("mods/workspace-chrome/x.svg").size(10).text_color(t.muted)))
+              .child(svg("mods/workspace-chrome/x.svg").size(9).text_color(t.muted)))
         ))
-        // Inline subtask adder form
+        // Inline subtask adder
         .when(adding, (el) => el.child(
-          h_flex().gap(6).items_center()
-            .child(Input.new(this.subInput).flex_1().h(26).px(8).rounded(5).border_1().border_color(t.accent).bg(t.background).text_size(12).text_color(t.foreground))
-            .child(div().h(26).px(10).rounded(5).bg(t.accent + "22").border_1().border_color(t.accent).cursor_pointer()
+          h_flex().gap(6).items_center().pt(2)
+            .child(Input.new(this.subInput).flex_1().h(24).px(7).rounded(5).border_1().border_color(t.accent).bg(t.background).text_size(11.5).text_color(t.foreground))
+            .child(div().h(24).px(8).rounded(5).bg(t.accent + "22").border_1().border_color(t.accent).cursor_pointer()
               .hover((st) => st.bg(t.accent + "44")).flex().items_center().justify_center()
               .on_click((_e, cx) => this.saveSub(cx))
-              .child(div().text_size(11.5).font_semibold().text_color(t.accent).child("Save")))
-            .child(div().size(20).cursor_pointer().flex().items_center().justify_center()
+              .child(div().text_size(11).font_semibold().text_color(t.accent).child("Save")))
+            .child(div().size(18).cursor_pointer().flex().items_center().justify_center()
               .on_click((_e, cx) => { this.subFor = null; this.closeAction(key, cx); })
-              .child(svg("mods/workspace-chrome/x.svg").size(10).text_color(t.muted)))
-        ));
+              .child(svg("mods/workspace-chrome/x.svg").size(9).text_color(t.muted)))
+        ))
+        // Accordion footer: quick add subtask and link to open modal
+        .child(
+          h_flex().gap(8).items_center().pt(2)
+            .when(!adding, (b) => b.child(
+              div().cursor_pointer().text_size(11).text_color(t.accent).hover((st) => st.underline())
+                .on_click((_e, cx) => {
+                  this.subFor = key;
+                  this.subInput.set_value("");
+                  this.subInput.focus();
+                  cx.notify();
+                })
+                .child("+ Subtask")
+            ))
+            .child(div().flex_1())
+            .child(
+              div().cursor_pointer().text_size(11).text_color(t.muted).hover((st) => st.text_color(t.foreground))
+                .on_click((_e, cx) => this.openDetailModal(x, cx))
+                .child("Full details in modal ↗")
+            )
+        );
     };
     const withStarter = (x) => {
       const key = `${x.slug}:${x.i}`;
@@ -1576,7 +1970,14 @@ export default class Todos extends View {
       .child(svg(icon).size(10).flex_none()).child(label);
     const more = (id, label, fn) => div().id(id).px(5).py(2).rounded(4).cursor_pointer().text_size(11).text_color(t.dim)
       .hover((s) => s.bg(t.hover).text_color(t.foreground)).on_click((_e, cx) => { fn(); cx.notify(); }).child(label);
-    return v_flex().size_full().min_h(0).rounded(10).overflow_hidden().bg(t.background).border_1().border_color(t.border).text_color(t.foreground).text_size(13)
+    return div().relative().size_full().overflow_hidden()
+      .on_key_down((e, cx) => {
+        if (e.key === "escape" && this.detailTask) {
+          this.closeDetailModal(cx);
+        }
+      })
+      .child(
+        v_flex().size_full().min_h(0).rounded(10).overflow_hidden().bg(t.background).border_1().border_color(t.border).text_color(t.foreground).text_size(13)
       .child(h_flex().h(42).flex_none().px(14).gap(8).items_center().border_b(1).border_color(t.border)
         .child(div().font_semibold().child("To-do"))
         .child(div().px(5).py(1).rounded(4).border_1().border_color(t.border).text_size(10).text_color(t.muted).child(`${open.length} open`))
@@ -1608,8 +2009,8 @@ export default class Todos extends View {
         })
         .child(h_flex().gap(6).items_center()
           .child(Input.new(this.input).flex_1().h(32).px(10).rounded(7).border_1().border_color(t.border).bg(t.raised).text_size(13).text_color(t.foreground))
-          .child(div().id("btn-add-task").h(32).px(12).rounded(9999).bg("#f36458").cursor_pointer().flex().items_center().justify_center()
-            .hover((st) => st.bg("#0052ef"))
+          .child(div().id("btn-add-task").h(32).px(12).rounded(9999).bg(t.accent).cursor_pointer().flex().items_center().justify_center()
+            .hover((st) => st.opacity(0.85))
             .on_click((_e, cx) => { if (this.sugs?.length) this.accept(cx); else this.add(this.input.value(), cx); })
             .child(div().text_size(12).font_semibold().text_color("#ffffff").child("Add Task"))))
         .child(h_flex().min_h(24).gap(4).items_center().flex_wrap()
@@ -1737,6 +2138,8 @@ export default class Todos extends View {
           .children(this.doneFolded ? [] : done.slice(0, this.doneShown ?? 5).map(row))
           .when(!this.doneFolded && done.length > 5, (el) => el.child(h_flex().mx(4).mt(2).gap(2)
             .when(done.length > (this.doneShown ?? 5), (el) => el.child(more("done-more", `Show ${Math.min(10, done.length - (this.doneShown ?? 5))} more`, () => { this.doneShown = (this.doneShown ?? 5) + 10; })))
-            .when((this.doneShown ?? 5) > 5, (el) => el.child(more("done-less", "Show less", () => { this.doneShown = 5; })))))));
+            .when((this.doneShown ?? 5) > 5, (el) => el.child(more("done-less", "Show less", () => { this.doneShown = 5; })))))))
+      )
+      .when(Boolean(this.detailTask && this.lists[this.detailTask.slug]?.items?.[this.detailTask.i]), (el) => el.child(this.renderDetailModal(t, cx)));
   }
 }
