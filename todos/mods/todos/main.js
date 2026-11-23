@@ -636,7 +636,7 @@ export default class Todos extends View {
     this.taskDescInput = InputState.new({ placeholder: "Description markdown..." });
 
     // Modal de Detalhes Completo
-    this.detailTask = { slug: "home-thiago-orchestrator", i: 15 }; // { slug, i }
+    this.detailTask = null; // { slug, i }
     this.modalTitleInput = InputState.new({ placeholder: "Task title..." });
     this.modalDescInput = InputState.new({ placeholder: "Markdown description / specs..." });
     this.modalEditingDesc = false;
@@ -1226,9 +1226,28 @@ export default class Todos extends View {
   }
 
   closeDetailModal(cx) {
-    this.detailTask = { slug: "home-thiago-orchestrator", i: 15 };
+    this.detailTask = null;
+    this.modalEditingDesc = false;
     this.modalDeleteArmed = false;
     cx.notify();
+  }
+
+  navModalPrev(cx) {
+    if (!this.detailTask) return;
+    const { slug, i } = this.detailTask;
+    const items = this.lists[slug]?.items ?? [];
+    if (i > 0) {
+      this.openDetailModal({ ...items[i - 1], slug, i: i - 1 }, cx);
+    }
+  }
+
+  navModalNext(cx) {
+    if (!this.detailTask) return;
+    const { slug, i } = this.detailTask;
+    const items = this.lists[slug]?.items ?? [];
+    if (i < items.length - 1) {
+      this.openDetailModal({ ...items[i + 1], slug, i: i + 1 }, cx);
+    }
   }
 
   saveModalTitle(cx) {
@@ -1511,24 +1530,54 @@ export default class Todos extends View {
       .border_1().border_color(t.border).shadow_lg().overflow_hidden().flex().flex_col()
           // Header
           .child(
-            h_flex().h(46).px(16).items_center().border_b(1).border_color(t.border).gap(8).flex_none()
-              .child(svg("mods/todos/edit.svg").size(14).text_color(t.accent))
-              .child(div().font_semibold().text_size(13).child("Task Details"))
+            h_flex().h(46).px(12).items_center().border_b(1).border_color(t.border).gap(8).flex_none()
+              .child(
+                div().id("btn-modal-back").h(26).px(6).rounded(6).cursor_pointer().flex().items_center().gap(4)
+                  .hover((s) => s.bg(t.raised))
+                  .tooltip("Back to list")
+                  .on_click((_e, cx) => this.closeDetailModal(cx))
+                  .child(svg("mods/workspace-chrome/chevron-left.svg").size(12).text_color(t.muted))
+                  .child(div().text_size(11.5).font_medium().text_color(t.muted).child("Back"))
+              )
+              .child(div().w(1).h(16).bg(t.border))
+              .child(div().font_semibold().text_size(12.5).child("Task Details"))
               .when(Boolean(folder), (el) => el.child(
-                div().px(6).py(1.5).rounded(9999).bg(this.color(folder, t) + "22").text_size(10.5).font_medium()
+                div().px(6).py(1).rounded(9999).bg(this.color(folder, t) + "22").text_size(10).font_medium()
                   .text_color(this.color(folder, t)).child(this.name(folder))
               ))
               .child(div().flex_1())
+              // Navigation Prev / Next
+              .child(
+                h_flex().items_center().gap(2)
+                  .child(
+                    div().id("btn-modal-prev").size(24).rounded(5).flex().items_center().justify_center()
+                      .tooltip("Previous task")
+                      .when(i > 0, (b) => b.cursor_pointer().hover((s) => s.bg(t.raised))
+                        .on_click((_e, cx) => this.navModalPrev(cx))
+                        .child(svg("mods/workspace-chrome/chevron-left.svg").size(11).text_color(t.foreground)))
+                      .when(i <= 0, (b) => b.opacity(0.3).child(svg("mods/workspace-chrome/chevron-left.svg").size(11).text_color(t.muted)))
+                  )
+                  .child(div().text_size(11).font_mono().text_color(t.dim).px(3).child(`${i + 1}/${(this.lists[slug]?.items ?? []).length}`))
+                  .child(
+                    div().id("btn-modal-next").size(24).rounded(5).flex().items_center().justify_center()
+                      .tooltip("Next task")
+                      .when(i < (this.lists[slug]?.items ?? []).length - 1, (b) => b.cursor_pointer().hover((s) => s.bg(t.raised))
+                        .on_click((_e, cx) => this.navModalNext(cx))
+                        .child(svg("mods/workspace-chrome/chevron-right.svg").size(11).text_color(t.foreground)))
+                      .when(i >= (this.lists[slug]?.items ?? []).length - 1, (b) => b.opacity(0.3).child(svg("mods/workspace-chrome/chevron-right.svg").size(11).text_color(t.muted)))
+                  )
+              )
               .child(
                 div().id("btn-close-modal").size(24).rounded(6).cursor_pointer().flex().items_center().justify_center()
                   .hover((s) => s.bg(t.raised))
+                  .tooltip("Close details")
                   .on_click((_e, cx) => this.closeDetailModal(cx))
                   .child(svg("mods/workspace-chrome/x.svg").size(12).text_color(t.muted))
               )
           )
-          // Body (Scrollable)
+          // Body (Scrollable with explicit ID)
           .child(
-            v_flex().flex_1().min_h(0).overflow_y_scrollbar().p(16).gap(16)
+            v_flex().id("modal-body-scroll").flex_1().min_h(0).overflow_y_scrollbar().p(16).gap(16)
               // Title row with main checkbox
               .child(
                 h_flex().gap(10).items_start()
