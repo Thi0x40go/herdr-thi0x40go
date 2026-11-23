@@ -644,7 +644,7 @@ export default class Todos extends View {
     this.modalDescTextarea = TextareaState.new({
       value: "",
       placeholder: "Add markdown description, specs, or acceptance criteria...",
-      rows: 5
+      rows: 10
     });
     this.modalGroupInput = InputState.new({ placeholder: "CARD-XXXX..." });
     this.modalSubInput = InputState.new({ placeholder: "Add a subtask..." });
@@ -1714,7 +1714,7 @@ export default class Todos extends View {
                   .when(this.modalEditingDesc, (b) => b.child(
                     v_flex().w_full().gap(6).p(8).rounded(8).border_1().border_color("#ffffff44").bg("#0c2818")
                       .child(
-                        Textarea.new(this.modalDescTextarea).w_full().min_h(140).h(180).px(8).py(6).rounded(6)
+                        Textarea.new(this.modalDescTextarea).w_full().min_h(220).h(320).px(8).py(6).rounded(6)
                           .border_1().border_color("#ffffff38").bg("#00000040")
                           .text_size(12).line_height("18px").text_color("#ffffff")
                       )
@@ -1741,7 +1741,7 @@ export default class Todos extends View {
                   // Reading mode: Formatted Markdown with green bg, white text, and white border
                   .when(!this.modalEditingDesc, (b) => b.child(
                     Boolean(task.description)
-                      ? div().id("desc-markdown-box").w_full().min_h(140).max_h(260).overflow_y_scrollbar().overflow_x_hidden()
+                      ? div().id("desc-markdown-box").w_full().min_h(220).max_h(440).overflow_y_scrollbar().overflow_x_hidden()
                           .p(12).rounded(8).border_1().border_color("#ffffff44").bg("#0c2818")
                           .cursor_pointer().tooltip("Click to edit description")
                           .on_click((_e, cx) => {
