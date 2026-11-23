@@ -1420,26 +1420,34 @@ export default class Todos extends View {
   }
 
 
-  renderMarkdownBlock(markdownText, t) {
+  renderMarkdownBlock(markdownText, t, customColors) {
     if (!markdownText) return div();
     const lines = markdownText.split("\n");
+    const colors = customColors ?? {
+      text: t.foreground,
+      accent: t.accent,
+      muted: t.muted,
+      codeBg: t.raised,
+      codeBorder: t.border,
+      codeText: t.accent,
+    };
 
     const renderTextPieces = (str, isHeader = false) => {
       const tokens = str.split(/(`[^`]+`|\*\*[^*]+\*\*)/g).filter(Boolean);
       if (tokens.length === 1 && !tokens[0].startsWith("`") && !tokens[0].startsWith("**")) {
-        return div().w_full().text_size(12).line_height("18px").text_color(isHeader ? t.accent : t.foreground)
+        return div().w_full().text_size(12).line_height("18px").text_color(isHeader ? colors.accent : colors.text)
           .whitespace_normal().child(str);
       }
       return h_flex().w_full().flex_wrap().gap_x(2).gap_y(1).items_baseline()
         .children(tokens.map((tok) => {
           if (tok.startsWith("`") && tok.endsWith("`") && tok.length >= 2) {
             return div().font_family("JetBrains Mono").text_size(11).px(4).py(0.5).rounded(4)
-              .bg(t.raised).border_1().border_color(t.border).text_color(t.accent).whitespace_normal().child(tok.slice(1, -1));
+              .bg(colors.codeBg).border_1().border_color(colors.codeBorder).text_color(colors.codeText).whitespace_normal().child(tok.slice(1, -1));
           }
           if (tok.startsWith("**") && tok.endsWith("**") && tok.length >= 4) {
-            return div().font_bold().text_size(12).text_color(t.accent).whitespace_normal().child(tok.slice(2, -2));
+            return div().font_bold().text_size(12).text_color(colors.accent).whitespace_normal().child(tok.slice(2, -2));
           }
-          return div().text_size(12).line_height("18px").text_color(isHeader ? t.accent : t.foreground).whitespace_normal().child(tok);
+          return div().text_size(12).line_height("18px").text_color(isHeader ? colors.accent : colors.text).whitespace_normal().child(tok);
         }));
     };
 
@@ -1448,13 +1456,13 @@ export default class Todos extends View {
       if (!trimmed) return div().h(4);
 
       if (trimmed.startsWith("# ")) {
-        return div().w_full().mt(6).mb(2).font_bold().text_size(13.5).text_color(t.foreground).whitespace_normal().child(trimmed.slice(2));
+        return div().w_full().mt(6).mb(2).font_bold().text_size(13.5).text_color(colors.text).whitespace_normal().child(trimmed.slice(2));
       }
       if (trimmed.startsWith("## ")) {
-        return div().w_full().mt(4).mb(2).font_bold().text_size(12.5).text_color(t.foreground).whitespace_normal().child(trimmed.slice(3));
+        return div().w_full().mt(4).mb(2).font_bold().text_size(12.5).text_color(colors.text).whitespace_normal().child(trimmed.slice(3));
       }
       if (trimmed.startsWith("### ")) {
-        return div().w_full().mt(3).mb(1).font_semibold().text_size(12).text_color(t.accent).whitespace_normal().child(trimmed.slice(4));
+        return div().w_full().mt(3).mb(1).font_semibold().text_size(12).text_color(colors.accent).whitespace_normal().child(trimmed.slice(4));
       }
 
       // Key-Value Label: **Label:** rest
@@ -1463,10 +1471,10 @@ export default class Todos extends View {
         const label = labelMatch[1].trim();
         const rest = labelMatch[2].trim();
         if (!rest) {
-          return div().w_full().mt(4).mb(1).font_bold().text_size(12).text_color(t.accent).whitespace_normal().child(label);
+          return div().w_full().mt(4).mb(1).font_bold().text_size(12).text_color(colors.accent).whitespace_normal().child(label);
         }
         return h_flex().w_full().gap(6).items_start()
-          .child(div().font_bold().text_size(12).text_color(t.accent).flex_none().child(label.endsWith(":") ? label : label + ":"))
+          .child(div().font_bold().text_size(12).text_color(colors.accent).flex_none().child(label.endsWith(":") ? label : label + ":"))
           .child(
             div().flex_1().min_w(0).child(renderTextPieces(rest))
           );
@@ -1475,7 +1483,7 @@ export default class Todos extends View {
       // Bullet list item (- ... or * ...)
       if (trimmed.startsWith("- ") || trimmed.startsWith("* ")) {
         return h_flex().w_full().gap(6).items_start().pl(2)
-          .child(div().size(5).mt(6).rounded(9999).bg(t.accent).flex_none())
+          .child(div().size(5).mt(6).rounded(9999).bg(colors.accent).flex_none())
           .child(
             div().flex_1().min_w(0).child(renderTextPieces(trimmed.slice(2)))
           );
@@ -1485,7 +1493,7 @@ export default class Todos extends View {
       const numMatch = /^(\d+)\.\s+(.*)$/.exec(trimmed);
       if (numMatch) {
         return h_flex().w_full().gap(6).items_start().pl(2)
-          .child(div().text_size(11).font_family("JetBrains Mono").font_bold().text_color(t.muted).flex_none().child(numMatch[1] + "."))
+          .child(div().text_size(11).font_family("JetBrains Mono").font_bold().text_color(colors.muted).flex_none().child(numMatch[1] + "."))
           .child(
             div().flex_1().min_w(0).child(renderTextPieces(numMatch[2]))
           );
@@ -1495,11 +1503,11 @@ export default class Todos extends View {
       if (trimmed.startsWith("|") && trimmed.endsWith("|")) {
         const cells = trimmed.split("|").slice(1, -1).map((c) => c.trim());
         if (cells.every((c) => /^[-:]+$/.test(c))) {
-          return div().w_full().h(1).bg(t.border).my(2);
+          return div().w_full().h(1).bg(colors.codeBorder).my(2);
         }
-        return h_flex().w_full().gap(4).px(4).py(1).rounded(3).bg(t.raised + "22").border_1().border_color(t.border + "44")
+        return h_flex().w_full().gap(4).px(4).py(1).rounded(3).bg(colors.codeBg).border_1().border_color(colors.codeBorder)
           .children(cells.map((cell) =>
-            div().flex_1().min_w(0).text_size(10.5).font_family("JetBrains Mono").truncate().text_color(t.foreground).child(cell)
+            div().flex_1().min_w(0).text_size(10.5).font_family("JetBrains Mono").truncate().text_color(colors.text).child(cell)
           ));
       }
 
@@ -1705,47 +1713,54 @@ export default class Todos extends View {
                           .child(div().text_size(11).text_color(t.accent).child("Edit"))
                       ))
                   )
-                  // Editing mode: Textarea with scroll and actions
+                  // Editing mode: Textarea with matching elegant green background
                   .when(this.modalEditingDesc, (b) => b.child(
-                    v_flex().w_full().gap(6).p(6).rounded(8).border_1().border_color(t.accent).bg(t.background)
+                    v_flex().w_full().gap(6).p(8).rounded(8).border_1().border_color("#ffffff44").bg("#0c2818")
                       .child(
                         Textarea.new(this.modalDescTextarea).w_full().min_h(140).h(180).px(8).py(6).rounded(6)
-                          .border_1().border_color(t.border).bg(t.raised + "44")
-                          .text_size(12).text_color(t.foreground)
+                          .border_1().border_color("rgba(255, 255, 255, 0.22)").bg("rgba(0, 0, 0, 0.25)")
+                          .text_size(12).line_height("18px").text_color("#ffffff")
                       )
                       .child(
                         h_flex().w_full().items_center().justify_between().px(2)
-                          .child(div().text_size(10.5).text_color(t.dim).child("Markdown (#, -, 1., **bold**, `code`)"))
+                          .child(div().text_size(10.5).text_color("#86efac").child("Markdown (#, -, 1., **bold**, `code`)"))
                           .child(
                             h_flex().gap(6).items_center()
                               .child(
                                 div().h(26).px(10).rounded(5).cursor_pointer().flex().items_center().justify_center()
-                                  .hover((s) => s.bg(t.hover))
+                                  .bg("rgba(255, 255, 255, 0.12)").hover((s) => s.bg("rgba(255, 255, 255, 0.22)"))
                                   .on_click((_e, cx) => { this.modalEditingDesc = false; cx.notify(); })
-                                  .child(div().text_size(11).text_color(t.muted).child("Cancel"))
+                                  .child(div().text_size(11).text_color("#ffffff").child("Cancel"))
                               )
                               .child(
-                                div().h(26).px(12).rounded(5).bg(t.accent).cursor_pointer().flex().items_center().justify_center()
-                                  .hover((s) => s.opacity(0.85))
+                                div().h(26).px(12).rounded(5).bg("#16a34a").cursor_pointer().flex().items_center().justify_center()
+                                  .hover((s) => s.bg("#22c55e"))
                                   .on_click((_e, cx) => this.saveModalDesc(cx))
                                   .child(div().text_size(11).font_semibold().text_color("#ffffff").child("Save"))
                               )
                           )
                       )
                   ))
-                  // Reading mode: Formatted Markdown with scroll and border
+                  // Reading mode: Formatted Markdown with green bg, white text, and white border
                   .when(!this.modalEditingDesc, (b) => b.child(
                     Boolean(task.description)
                       ? div().id("desc-markdown-box").w_full().min_h(140).max_h(260).overflow_y_scrollbar().overflow_x_hidden()
-                          .p(10).rounded(8).border_1().border_color(t.border).bg(t.raised + "22").border_l(3).border_color(t.accent)
+                          .p(12).rounded(8).border_1().border_color("#ffffff44").bg("#0c2818")
                           .cursor_pointer().tooltip("Click to edit description")
                           .on_click((_e, cx) => {
                             this.modalEditingDesc = true;
                             this.modalDescTextarea.set_value(task.description || "");
                             cx.notify();
                           })
-                          .child(this.renderMarkdownBlock(task.description, t))
-                      : div().w_full().h(36).px(10).rounded(6).border_1().border_dashed().border_color(t.border).cursor_pointer()
+                          .child(this.renderMarkdownBlock(task.description, t, {
+                            text: "#ffffff",
+                            accent: "#4ade80",
+                            muted: "#86efac",
+                            codeBg: "rgba(255, 255, 255, 0.12)",
+                            codeBorder: "rgba(255, 255, 255, 0.25)",
+                            codeText: "#86efac",
+                          }))
+                      : div().w_full().h(38).px(12).rounded(6).border_1().border_dashed().border_color(t.border).cursor_pointer()
                           .flex().items_center().gap(6).hover((s) => s.border_color(t.accent).bg(t.raised + "44"))
                           .on_click((_e, cx) => {
                             this.modalEditingDesc = true;
@@ -1859,12 +1874,14 @@ export default class Todos extends View {
           )
           // Footer
           .child(
-            h_flex().h(48).px(16).items_center().border_t(1).border_color(t.border).bg(t.raised + "44").gap(8).flex_none()
+            h_flex().h(48).px(16).items_center().border_t(1).border_color(t.border).bg(t.raised + "44").gap(10).flex_none()
+              // Trash Delete Button (Icon with confirmation state)
               .child(
-                div().h(28).px(10).rounded(6).cursor_pointer().flex().items_center().justify_center()
+                h_flex().id("btn-modal-delete").h(32).px(8).rounded(6).cursor_pointer().items_center().gap(5)
                   .border_1().border_color(this.modalDeleteArmed ? t.ansi1 : t.border)
-                  .bg(this.modalDeleteArmed ? t.ansi1 + "22" : t.background)
-                  .hover((s) => s.bg(t.hover))
+                  .bg(this.modalDeleteArmed ? t.ansi1 + "26" : t.background)
+                  .hover((s) => s.bg(t.ansi1 + "20").border_color(t.ansi1))
+                  .tooltip(this.modalDeleteArmed ? "Click again to confirm delete" : "Delete task")
                   .on_click((_e, cx) => {
                     if (!this.modalDeleteArmed) {
                       this.modalDeleteArmed = true;
@@ -1874,31 +1891,33 @@ export default class Todos extends View {
                     }
                     cx.notify();
                   })
-                  .child(div().text_size(11.5).text_color(this.modalDeleteArmed ? t.ansi1 : t.dim).child(this.modalDeleteArmed ? "Confirm Delete?" : "Delete"))
+                  .child(svg("mods/todos/trash.svg").size(14).text_color(this.modalDeleteArmed ? t.ansi1 : t.muted))
+                  .when(this.modalDeleteArmed, (b) => b.child(div().text_size(11).font_semibold().text_color(t.ansi1).child("Confirm?")))
               )
-              .when(this.agentChoices?.length > 0, (el) => el.child(
-                div().h(28).px(10).rounded(6).bg(t.background).border_1().border_color(t.border).cursor_pointer().flex().items_center().justify_center().gap(4)
-                  .hover((s) => s.bg(t.hover).border_color(t.accent))
+              // Run Agent Button (Modern styled button)
+              .when(this.agentChoices?.length > 0 && !task.done, (el) => el.child(
+                h_flex().id("btn-modal-agent").h(32).px(12).gap(6).rounded(6).cursor_pointer().items_center().justify_center()
+                  .bg(t.accent + "18").border_1().border_color(t.accent + "55")
+                  .hover((s) => s.bg(t.accent + "33").border_color(t.accent))
+                  .tooltip("Start an autonomous agent on this task")
                   .on_click((_e, cx) => {
                     this.closeDetailModal(cx);
                     this.startFor = key;
                     cx.notify();
                   })
-                  .child(svg("mods/todos/bot.svg").size(12).text_color(t.muted))
-                  .child(div().text_size(11.5).text_color(t.foreground).child("Run Agent"))
+                  .child(svg("mods/todos/bot.svg").size(13).text_color(t.accent))
+                  .child(div().text_size(11.5).font_semibold().text_color(t.accent).child("Run Agent"))
+                  .child(svg("mods/workspace-chrome/chevron-right.svg").size(10).text_color(t.accent))
               ))
               .child(div().flex_1())
+              // Mark as Done / Open
               .child(
-                div().h(28).px(12).rounded(6).bg(task.done ? t.raised : t.ansi2 + "22").border_1().border_color(task.done ? t.border : t.ansi2).cursor_pointer().flex().items_center().justify_center()
-                  .hover((s) => s.bg(task.done ? t.hover : t.ansi2 + "33"))
+                h_flex().h(32).px(14).rounded(6).cursor_pointer().items_center().gap(6)
+                  .bg(task.done ? t.raised : t.ansi2 + "22").border_1().border_color(task.done ? t.border : t.ansi2)
+                  .hover((s) => s.bg(task.done ? t.hover : t.ansi2 + "38"))
                   .on_click((_e, cx) => this.toggleModalTaskDone(cx))
+                  .child(svg(task.done ? "mods/todos/sync.svg" : "mods/workspace-chrome/check.svg").size(12).text_color(task.done ? t.muted : t.ansi2))
                   .child(div().text_size(11.5).font_semibold().text_color(task.done ? t.muted : t.ansi2).child(task.done ? "Mark as Open" : "Mark as Done"))
-              )
-              .child(
-                div().h(28).px(12).rounded(6).bg(t.accent).cursor_pointer().flex().items_center().justify_center()
-                  .hover((s) => s.opacity(0.85))
-                  .on_click((_e, cx) => this.closeDetailModal(cx))
-                  .child(div().text_size(11.5).font_semibold().text_color("#ffffff").child("Close"))
               )
           );
   }
