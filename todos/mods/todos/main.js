@@ -1197,6 +1197,8 @@ export default class Todos extends View {
     const l = this.lists[slug];
     if (!l) return;
     const items = fn(l.items.map((x) => ({ ...x })));
+    l.items = items;
+    cx.notify();
     cx.spawn(async (cx) => this.write(slug, l.folder, items, cx));
   }
 
@@ -1542,14 +1544,16 @@ export default class Todos extends View {
       .border_1().border_color(t.border).shadow_lg().overflow_hidden().flex().flex_col()
           // Header
           .child(
-            h_flex().h(46).px(12).items_center().border_b(1).border_color(t.border).gap(8).flex_none()
+            h_flex().h(46).px(14).items_center().border_b(1).border_color(t.border).gap(10).flex_none()
+              // Highlighted Back button (primary way to close/return)
               .child(
-                div().id("btn-modal-back").h(26).px(6).rounded(6).cursor_pointer().flex().items_center().gap(4)
-                  .hover((s) => s.bg(t.raised))
-                  .tooltip("Back to list")
+                h_flex().id("btn-modal-back").h(28).px(10).rounded(6).cursor_pointer().items_center().gap(5)
+                  .bg(t.accent + "22").border_1().border_color(t.accent + "55")
+                  .hover((s) => s.bg(t.accent + "38").border_color(t.accent))
+                  .tooltip("Back to list (Esc)")
                   .on_click((_e, cx) => this.closeDetailModal(cx))
-                  .child(svg("mods/workspace-chrome/chevron-left.svg").size(12).text_color(t.muted))
-                  .child(div().text_size(11.5).font_medium().text_color(t.muted).child("Back"))
+                  .child(svg("mods/workspace-chrome/chevron-left.svg").size(13).text_color(t.accent))
+                  .child(div().text_size(12).font_semibold().text_color(t.accent).child("Back"))
               )
               .child(div().w(1).h(16).bg(t.border))
               .child(div().font_semibold().text_size(12.5).child(`Task #${i + 1}`))
@@ -1558,33 +1562,26 @@ export default class Todos extends View {
                   .text_color(this.color(folder, t)).child(this.name(folder))
               ))
               .child(div().flex_1())
-              // Navigation Prev / Next
+              // Navigation Prev / Next (cleanly on the right)
               .child(
-                h_flex().items_center().gap(2)
+                h_flex().items_center().gap(3)
                   .child(
-                    div().id("btn-modal-prev").size(24).rounded(5).flex().items_center().justify_center()
+                    div().id("btn-modal-prev").size(26).rounded(5).flex().items_center().justify_center()
                       .tooltip("Previous task")
                       .when(i > 0, (b) => b.cursor_pointer().hover((s) => s.bg(t.raised))
                         .on_click((_e, cx) => this.navModalPrev(cx))
-                        .child(svg("mods/workspace-chrome/chevron-left.svg").size(11).text_color(t.foreground)))
-                      .when(i <= 0, (b) => b.opacity(0.3).child(svg("mods/workspace-chrome/chevron-left.svg").size(11).text_color(t.muted)))
+                        .child(svg("mods/workspace-chrome/chevron-left.svg").size(12).text_color(t.foreground)))
+                      .when(i <= 0, (b) => b.opacity(0.3).child(svg("mods/workspace-chrome/chevron-left.svg").size(12).text_color(t.muted)))
                   )
-                  .child(div().text_size(11).font_family("JetBrains Mono").text_color(t.dim).px(3).child(`${i + 1}/${(this.lists[slug]?.items ?? []).length}`))
+                  .child(div().text_size(11).font_family("JetBrains Mono").text_color(t.dim).px(4).child(`${i + 1}/${(this.lists[slug]?.items ?? []).length}`))
                   .child(
-                    div().id("btn-modal-next").size(24).rounded(5).flex().items_center().justify_center()
+                    div().id("btn-modal-next").size(26).rounded(5).flex().items_center().justify_center()
                       .tooltip("Next task")
                       .when(i < (this.lists[slug]?.items ?? []).length - 1, (b) => b.cursor_pointer().hover((s) => s.bg(t.raised))
                         .on_click((_e, cx) => this.navModalNext(cx))
-                        .child(svg("mods/workspace-chrome/chevron-right.svg").size(11).text_color(t.foreground)))
-                      .when(i >= (this.lists[slug]?.items ?? []).length - 1, (b) => b.opacity(0.3).child(svg("mods/workspace-chrome/chevron-right.svg").size(11).text_color(t.muted)))
+                        .child(svg("mods/workspace-chrome/chevron-right.svg").size(12).text_color(t.foreground)))
+                      .when(i >= (this.lists[slug]?.items ?? []).length - 1, (b) => b.opacity(0.3).child(svg("mods/workspace-chrome/chevron-right.svg").size(12).text_color(t.muted)))
                   )
-              )
-              .child(
-                div().id("btn-close-modal").size(24).rounded(6).cursor_pointer().flex().items_center().justify_center()
-                  .hover((s) => s.bg(t.raised))
-                  .tooltip("Close details")
-                  .on_click((_e, cx) => this.closeDetailModal(cx))
-                  .child(svg("mods/workspace-chrome/x.svg").size(12).text_color(t.muted))
               )
           )
           // Body (Scrollable with explicit ID)
