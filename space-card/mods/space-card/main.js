@@ -16,10 +16,17 @@ function normalizeCard(str) {
   return c.toUpperCase();
 }
 
+function detectCardFromName(name) {
+  if (!name) return "";
+  const m = /\b(CARD|EVAH|TASK|PROJ|ISSUE)[-_ ]?([0-9]+)\b/i.exec(name);
+  return m ? `${m[1].toUpperCase()}-${m[2]}` : "";
+}
+
 export default class SpaceCardDialog extends View {
   init(_props, cx) {
     this.handle = cx.focus_handle();
     const p = props() ?? {};
+    this.overlay = p.overlay;
     this.spaceId = p.space;
     this.folder = p.folder;
     this.space = spaces().find((s) => s.id === this.spaceId);
@@ -29,16 +36,16 @@ export default class SpaceCardDialog extends View {
     }
 
     const sc = shared("spaces.cards") ?? {};
-    const detectCard = (name) => {
-      if (!name) return "";
-      const m = /\b(CARD|EVAH|TASK|PROJ|ISSUE)[-_ ]?([0-9]+)\b/i.exec(name);
-      return m ? `${m[1].toUpperCase()}-${m[2]}` : "";
-    };
     const explicit = sc.spaces?.[this.spaceId];
-    this.currentCard = p.card || (explicit && explicit !== "none" ? explicit : null) || detectCard(this.space?.name) || (this.folder ? sc.folders?.[this.folder] : "") || "";
+    this.currentCard = p.card || (explicit && explicit !== "none" ? explicit : null) || detectCardFromName(this.space?.name) || (this.folder ? sc.folders?.[this.folder] : "") || "";
+    this.text = this.currentCard;
+
     this.input = InputState.new({ value: this.currentCard, placeholder: "e.g. EVAH-1303, CARD-2467..." });
-    this.input.on("submit", () => this.save(cx));
-    this.input.on("change", () => cx.notify());
+    this.input.on("submit", (_e, cx) => this.save(cx));
+    this.input.on("change", (_e, cx) => {
+      this.text = this.input.value();
+      cx.notify();
+    });
     this.inputFocused = true;
     this.input.on("focus", () => { this.inputFocused = true; cx.notify(); });
     this.input.on("blur", () => { this.inputFocused = false; cx.notify(); });
@@ -91,66 +98,101 @@ export default class SpaceCardDialog extends View {
         const parsed = JSON.parse(raw);
         if (typeof parsed === "object" && parsed !== null) {
           data = {
-            spaces: parsed.spaces || (parsed.by_id ?? {}),
-            folders: parsed.folders || (parsed.by_folder ?? {}),
+            spaces: parsed.spaces || parsed.by_id || {},
+            folders: parsed.folders || parsed.by_folder || {},
           };
         }
       } catch {}
     }
-    return data;
+    return { data, raw };
   }
 
-  async writeCardsData(data) {
+  async writeCardsData(data, oldRaw = null) {
     const jsonStr = JSON.stringify(data, null, 2);
-    await writeTextFile(SPACES_CARDS_FILE(), jsonStr).catch(async () => {
-      await exec("python3", ["-c", `
-import json, os
-p = os.path.expanduser("~/.local/share/herdr/spaces-cards.json")
-os.makedirs(os.path.dirname(p), exist_ok=True)
-with open(p, "w", encoding="utf-8") as f:
-    json.dump(${JSON.stringify(data)}, f, indent=2)
-      `]);
-    });
+    let ok = false;
+    try {
+      await writeTextFile(SPACES_CARDS_FILE(), jsonStr, oldRaw ?? undefined);
+      ok = true;
+    } catch {}
+    if (!ok) {
+      try {
+        await exec("python3", [
+          "-c",
+          "import sys, os; p = os.path.expanduser('~/.local/share/herdr/spaces-cards.json'); os.makedirs(os.path.dirname(p), exist_ok=True); open(p, 'w', encoding='utf-8').write(sys.argv[1])",
+          jsonStr,
+        ]);
+      } catch {}
+    }
     setShared("spaces.cards", data);
   }
 
   pickCard(cardName, cx) {
+    this.text = cardName;
     this.input.set_value(cardName);
     this.input.focus();
     cx.notify();
   }
 
   save(cx) {
-    const rawVal = this.input.value();
+    const rawVal = this.text || this.input.value();
     const card = normalizeCard(rawVal);
+    const overlay = this.overlay || props()?.overlay;
+
     if (!card) {
       this.unlink(cx);
       return;
     }
+
+    // Atualização otimista imediata na memória para todos os componentes
+    const sc = shared("spaces.cards") ?? { spaces: {}, folders: {} };
+    const currentSc = {
+      spaces: { ...(sc.spaces ?? {}) },
+      folders: { ...(sc.folders ?? {}) },
+    };
+    if (this.spaceId) currentSc.spaces[this.spaceId] = card;
+    if (this.folder) currentSc.folders[this.folder] = card;
+    setShared("spaces.cards", currentSc);
+
+    // Fecha o overlay na hora
+    if (overlay) closeOverlay(overlay);
+
+    // Grava no disco
     cx.spawn(async (cx) => {
-      const data = await this.readCardsData();
+      const { data, raw } = await this.readCardsData();
       if (this.spaceId) data.spaces[this.spaceId] = card;
       if (this.folder) data.folders[this.folder] = card;
-      await this.writeCardsData(data);
-      closeOverlay(props()?.overlay);
+      await this.writeCardsData(data, raw);
       cx.notify();
     });
   }
 
   unlink(cx) {
+    const overlay = this.overlay || props()?.overlay;
+
+    // Atualização otimista imediata
+    const sc = shared("spaces.cards") ?? { spaces: {}, folders: {} };
+    const currentSc = {
+      spaces: { ...(sc.spaces ?? {}) },
+      folders: { ...(sc.folders ?? {}) },
+    };
+    if (this.spaceId) currentSc.spaces[this.spaceId] = "none";
+    if (this.folder) delete currentSc.folders[this.folder];
+    setShared("spaces.cards", currentSc);
+
+    if (overlay) closeOverlay(overlay);
+
     cx.spawn(async (cx) => {
-      const data = await this.readCardsData();
-      if (this.spaceId && data.spaces) data.spaces[this.spaceId] = "none";
-      if (this.folder && data.folders) delete data.folders[this.folder];
-      await this.writeCardsData(data);
-      closeOverlay(props()?.overlay);
+      const { data, raw } = await this.readCardsData();
+      if (this.spaceId) data.spaces[this.spaceId] = "none";
+      if (this.folder) delete data.folders[this.folder];
+      await this.writeCardsData(data, raw);
       cx.notify();
     });
   }
 
   render(cx) {
     const t = theme();
-    const currentVal = normalizeCard(this.input.value());
+    const currentVal = normalizeCard(this.text || this.input.value());
     const spaceName = this.space?.name || "Space";
     const shortFolder = this.folder ? this.folder.replace(new RegExp(`^${home()}`), "~") : "";
 
@@ -183,7 +225,8 @@ with open(p, "w", encoding="utf-8") as f:
       .text_color(t.foreground)
       .on_key_down((e, cx) => {
         if (e.key === "escape") {
-          closeOverlay(props()?.overlay);
+          const overlay = this.overlay || props()?.overlay;
+          if (overlay) closeOverlay(overlay);
           cx.stop_propagation();
         }
       })
@@ -214,7 +257,10 @@ with open(p, "w", encoding="utf-8") as f:
               .text_color(t.dim)
               .cursor_pointer()
               .hover((s) => s.bg(t.hover).text_color(t.foreground))
-              .on_click(() => closeOverlay(props()?.overlay))
+              .on_click(() => {
+                const overlay = this.overlay || props()?.overlay;
+                if (overlay) closeOverlay(overlay);
+              })
               .child("Esc"),
           ),
       )
@@ -239,7 +285,7 @@ with open(p, "w", encoding="utf-8") as f:
               .justify_between()
               .items_center()
               .child(div().text_size(11.5).font_medium().text_color(t.dim).child("Card / Group ID"))
-              .when(Boolean(this.input.value()), (el) =>
+              .when(Boolean(this.text || this.input.value()), (el) =>
                 el.child(
                   div()
                     .text_size(11)
@@ -247,6 +293,7 @@ with open(p, "w", encoding="utf-8") as f:
                     .cursor_pointer()
                     .hover((s) => s.text_color(t.foreground))
                     .on_click((_e, cx) => {
+                      this.text = "";
                       this.input.set_value("");
                       this.input.focus();
                       cx.notify();
@@ -278,7 +325,7 @@ with open(p, "w", encoding="utf-8") as f:
             div()
               .text_size(11)
               .text_color(t.dim)
-              .child("Enter a card identifier like CARD-2467, or click an existing one below."),
+              .child("Enter a card identifier like EVAH-1303, CARD-2467, or click an existing one below."),
           ),
       )
       // Existing cards section
@@ -344,14 +391,17 @@ with open(p, "w", encoding="utf-8") as f:
           .justify_between()
           .child(
             this.currentCard
-              ? button("scd-unlink", "Unlink Card", false, () => this.unlink(cx), true)
+              ? button("scd-unlink", "Unlink Card", false, (_e, cx) => this.unlink(cx), true)
               : div(),
           )
           .child(
             h_flex()
               .gap(8)
-              .child(button("scd-cancel", "Cancel", false, () => closeOverlay(props()?.overlay)))
-              .child(button("scd-save", "Save Link", true, () => this.save(cx))),
+              .child(button("scd-cancel", "Cancel", false, () => {
+                const overlay = this.overlay || props()?.overlay;
+                if (overlay) closeOverlay(overlay);
+              }))
+              .child(button("scd-save", "Save Link", true, (_e, cx) => this.save(cx))),
           ),
       );
   }
