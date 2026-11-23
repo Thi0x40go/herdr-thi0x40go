@@ -40,6 +40,11 @@ function launchDetached(cmd, args = []) {
   exec("sh", ["-c", `nohup ${fullCmd} </dev/null >/dev/null 2>&1 &`]);
 }
 
+function ICON(name, size = 13, color = null) {
+  const el = svg(`mods/worktrees/icons/${name}.svg`).size(size).flex_none();
+  return color ? el.text_color(color) : el;
+}
+
 export default class OrchestratorWt extends View {
   getSuggestions() {
     const list = [];
@@ -758,21 +763,16 @@ export default ${JSON.stringify(CONFIG, null, 2)};
         const repoMatches = r.repo_id.toLowerCase().includes(filterTerm);
         const wts = (r.worktrees ?? []).filter(
           (w) =>
-            (w.origin === "orchestrator" || w.origin === "herdr") &&
-            (repoMatches ||
-              (w.branch && w.branch.toLowerCase().includes(filterTerm)) ||
-              w.path.toLowerCase().includes(filterTerm))
+            repoMatches ||
+            (w.branch && w.branch.toLowerCase().includes(filterTerm)) ||
+            w.path.toLowerCase().includes(filterTerm)
         );
         return { ...r, worktrees: wts, matches: repoMatches || wts.length > 0 };
       })
       .filter((r) => r.matches && r.worktrees.length > 0);
 
     const totalFeatures = this.repos.reduce(
-      (acc, r) =>
-        acc +
-        (r.worktrees ?? []).filter(
-          (w) => w.origin === "orchestrator" || w.origin === "herdr"
-        ).length,
+      (acc, r) => acc + (r.worktrees ?? []).length,
       0
     );
 
@@ -792,6 +792,7 @@ export default ${JSON.stringify(CONFIG, null, 2)};
       .text_size(13)
       .child(
         // Header
+        // Header Moderno e Clean
         h_flex()
           .items_center()
           .justify_between()
@@ -800,51 +801,72 @@ export default ${JSON.stringify(CONFIG, null, 2)};
               .gap(10)
               .items_center()
               .child(
-                div()
-                  .font_bold()
-                  .text_size(15)
-                  .text_color(t.foreground)
-                  .child("Orchestrator Worktrees")
+                h_flex()
+                  .gap(8)
+                  .items_center()
+                  .child(ICON("branch", 18, t.accent))
+                  .child(
+                    div()
+                      .font_bold()
+                      .text_size(16)
+                      .text_color(t.foreground)
+                      .child("Worktrees")
+                  )
               )
               .child(
-                div()
-                  .text_size(11)
-                  .px(6)
-                  .py(2)
-                  .rounded(4)
+                h_flex()
+                  .gap(5)
+                  .items_center()
+                  .px(8)
+                  .py(3)
+                  .rounded(9999)
                   .bg(t.raised)
-                  .text_color(t.muted)
-                  .child(`${totalFeatures} ativas`)
+                  .child(ICON("repo", 11, t.dim))
+                  .child(
+                    div()
+                      .text_size(11)
+                      .font_medium()
+                      .text_color(t.muted)
+                      .child(`${totalFeatures} ativas`)
+                  )
               )
               .when(dirtyCount > 0, (el) =>
                 el.child(
-                  div()
-                    .text_size(11)
-                    .px(6)
-                    .py(2)
-                    .rounded(4)
+                  h_flex()
+                    .gap(5)
+                    .items_center()
+                    .px(8)
+                    .py(3)
+                    .rounded(9999)
                     .bg(t.accent)
-                    .text_color(t.accent_foreground)
-                    .child(`${dirtyCount} com alterações (LLM/WIP)`)
+                    .child(ICON("diff", 11, t.accent_foreground))
+                    .child(
+                      div()
+                        .text_size(11)
+                        .font_medium()
+                        .text_color(t.accent_foreground)
+                        .child(`${dirtyCount} modificadas`)
+                    )
                 )
               )
           )
           .child(
             h_flex()
-              .gap(8)
+              .gap(6)
               .items_center()
-              // Botão Nova Worktree
+              // Botão Nova Worktree (Destaque Primário)
               .child(
                 h_flex()
                   .id("btn-new-wt")
                   .cursor_pointer()
-                  .px(8)
-                  .py(4)
-                  .gap(5)
+                  .px(10)
+                  .py(5)
+                  .gap(6)
                   .items_center()
-                  .rounded(5)
+                  .rounded(6)
                   .bg(t.solid)
                   .text_size(12)
+                  .font_medium()
                   .text_color(t.solid_foreground)
                   .hover((s) => s.bg(t.hover))
                   .on_click((_e, cx) => {
@@ -853,11 +875,7 @@ export default ${JSON.stringify(CONFIG, null, 2)};
                     cx.notify();
                     cx.timer.after(200, () => this.branchInput.focus());
                   })
-                  .child(
-                    svg("mods/worktree/add.svg")
-                      .size(13)
-                      .flex_none()
-                  )
+                  .child(ICON("add", 13, t.solid_foreground))
                   .child(div().child("Nova Worktree"))
               )
               // Botão Atualizar
@@ -866,19 +884,17 @@ export default ${JSON.stringify(CONFIG, null, 2)};
                   .id("btn-refresh-all")
                   .cursor_pointer()
                   .px(8)
-                  .py(4)
+                  .py(5)
                   .gap(5)
                   .items_center()
-                  .rounded(5)
+                  .rounded(6)
                   .bg(t.raised)
                   .text_size(12)
                   .text_color(t.foreground)
                   .hover((s) => s.bg(t.hover))
                   .on_click((_e, cx) => this.loadRepos(cx))
                   .child(
-                    svg("mods/worktree/sync.svg")
-                      .size(13)
-                      .flex_none()
+                    ICON("sync", 13, t.foreground)
                       .when(this.loading, (el) => el.spin(900))
                   )
                   .child(div().child("Atualizar"))
@@ -889,10 +905,10 @@ export default ${JSON.stringify(CONFIG, null, 2)};
                   .id("btn-config")
                   .cursor_pointer()
                   .px(8)
-                  .py(4)
-                  .gap(4)
+                  .py(5)
+                  .gap(5)
                   .items_center()
-                  .rounded(5)
+                  .rounded(6)
                   .bg(t.raised)
                   .text_size(12)
                   .text_color(t.foreground)
@@ -901,35 +917,59 @@ export default ${JSON.stringify(CONFIG, null, 2)};
                     this.configuring = true;
                     cx.notify();
                   })
-                  .child(div().child("⚙️ Config"))
+                  .child(ICON("settings", 13, t.muted))
+                  .child(div().child("Config"))
               )
               // Botão Fechar
               .child(
-                div()
+                h_flex()
                   .id("btn-close")
                   .cursor_pointer()
                   .px(8)
-                  .py(4)
-                  .rounded(5)
+                  .py(5)
+                  .gap(4)
+                  .items_center()
+                  .rounded(6)
                   .text_size(12)
                   .text_color(t.muted)
                   .hover((s) => s.text_color(t.foreground).bg(t.hover))
                   .on_click(() => this.close())
-                  .child("✕ Fechar")
+                  .child(ICON("close", 13, t.muted))
               )
           )
       )
       .child(
-        // Search Input
-        Input.new(this.input)
-          .h(34)
-          .px(10)
+        // Barra de Busca estilo Raycast / Command Palette
+        h_flex()
           .items_center()
-          .rounded(6)
+          .px(10)
+          .h(38)
+          .rounded(8)
           .border(1)
-          .border_color(t.input)
-          .bg(t.background)
-          .text_color(t.foreground)
+          .border_color(t.border)
+          .bg(t.surface)
+          .gap(8)
+          .child(ICON("search", 14, t.dim))
+          .child(
+            Input.new(this.input)
+              .flex_1()
+              .h(34)
+              .border(0)
+              .bg("#00000000")
+              .text_color(t.foreground)
+              .text_size(12.5)
+          )
+          .child(
+            div()
+              .px(5)
+              .py(2)
+              .rounded(4)
+              .bg(t.raised)
+              .text_size(10)
+              .font_medium()
+              .text_color(t.dim)
+              .child("ESC")
+          )
       )
       .when(this.loading, (el) =>
         el
@@ -937,9 +977,15 @@ export default ${JSON.stringify(CONFIG, null, 2)};
           .items_center()
           .justify_center()
           .child(
-            div()
-              .text_color(t.muted)
-              .child("Carregando worktrees (Orchestrator e Herdr)...")
+            h_flex()
+              .gap(8)
+              .items_center()
+              .child(ICON("sync", 16, t.accent).spin(900))
+              .child(
+                div()
+                  .text_color(t.muted)
+                  .child("Carregando worktrees (Orchestrator e Herdr)...")
+              )
           )
       )
       .when(Boolean(this.error), (el) =>
@@ -966,13 +1012,15 @@ export default ${JSON.stringify(CONFIG, null, 2)};
               )
               .when(filteredRepos.length === 0, (el) =>
                 el
-                  .p(20)
+                  .p(24)
                   .items_center()
                   .justify_center()
+                  .gap(8)
+                  .child(ICON("search", 20, t.dim))
                   .child(
                     div()
                       .text_color(t.muted)
-                      .child("Nenhum worktree encontrado para este filtro.")
+                      .child("Nenhuma worktree encontrada para este filtro.")
                   )
               )
           )
@@ -991,11 +1039,11 @@ export default ${JSON.stringify(CONFIG, null, 2)};
       .border_color(t.border)
       .bg(t.surface)
       .child(
-        // Header do Repositório
+        // Header do Repositório Clean
         h_flex()
           .id(`repo-head-${repo.repo_id}`)
           .px(12)
-          .py(8)
+          .py(9)
           .items_center()
           .justify_between()
           .cursor_pointer()
@@ -1006,28 +1054,52 @@ export default ${JSON.stringify(CONFIG, null, 2)};
               .gap(8)
               .items_center()
               .child(
-                div()
-                  .text_color(t.dim)
-                  .child(isExpanded ? "▼" : "▶")
+                ICON(isExpanded ? "chevron-down" : "chevron-right", 12, t.dim)
               )
+              .child(ICON("repo", 14, t.accent))
               .child(
                 div()
                   .font_semibold()
+                  .text_size(13)
                   .text_color(t.foreground)
                   .child(repo.repo_id)
               )
               .child(
                 div()
                   .text_size(11)
+                  .px(6)
+                  .py(1)
+                  .rounded(9999)
+                  .bg(t.raised)
                   .text_color(t.dim)
-                  .child(`(${wts.length} worktrees)`)
+                  .child(`${wts.length}`)
+              )
+              .when(Boolean(repo.isCurrent), (el) =>
+                el.child(
+                  h_flex()
+                    .gap(4)
+                    .items_center()
+                    .px(6)
+                    .py(1)
+                    .rounded(9999)
+                    .bg(t.raised)
+                    .child(ICON("check", 10, t.ansi2 || t.accent))
+                    .child(
+                      div()
+                        .text_size(10)
+                        .font_medium()
+                        .text_color(t.ansi2 || t.accent)
+                        .child("Aba Atual")
+                    )
+                )
               )
           )
       )
       .when(isExpanded, (el) =>
         el.child(
           v_flex()
-            .p(6)
+            .px(8)
+            .pb(8)
             .gap(6)
             .children(
               wts.map((wt) =>
@@ -1051,102 +1123,126 @@ export default ${JSON.stringify(CONFIG, null, 2)};
     return h_flex()
       .id(`wt-row-${wt.path}`)
       .px(10)
-      .py(8)
+      .py(9)
       .rounded(6)
       .items_center()
       .justify_between()
+      .border(1)
+      .border_color(hasDirty ? t.border : (t.subtle_border ?? t.border))
       .bg(t.background)
       .hover((s) => s.bg(t.raised))
       .child(
-        // Lado Esquerdo: Branch e Detalhes
+        // Lado Esquerdo: Branch e Metadados Modernos
         v_flex()
           .flex_1()
           .min_w(0)
-          .gap(3)
+          .gap(4)
           .child(
             h_flex()
-              .gap(6)
+              .gap(7)
               .items_center()
-              .child(
-                svg("mods/worktree/git-branch.svg")
-                  .size(13)
-                  .flex_none()
-                  .text_color(t.dim)
-              )
+              .child(ICON("branch", 13, hasDirty ? t.accent : t.muted))
               .child(
                 div()
                   .truncate()
                   .font_semibold()
+                  .text_size(12.5)
                   .text_color(t.foreground)
                   .child(wt.branch || "detached")
               )
-              // Badge de Origem: [repo base] | [orchestrator] | [herdr hc]
+              // Badge de Origem
               .child(
                 div()
-                  .px(5)
+                  .px(6)
                   .py(1)
-                  .rounded(3)
+                  .rounded(9999)
                   .text_size(10)
-                  .bg(wt.origin === "repo" ? (t.subtle ?? t.raised) : isHerdr ? t.accent : t.raised)
-                  .text_color(wt.origin === "repo" ? t.dim : isHerdr ? t.accent_foreground : t.muted)
+                  .font_medium()
+                  .bg(t.raised)
+                  .text_color(wt.origin === "repo" ? t.dim : isHerdr ? t.accent : t.foreground)
                   .child(
                     wt.origin === "repo"
-                      ? "repo base"
+                      ? "base"
                       : isHerdr
                         ? "herdr hc"
                         : "orchestrator"
                   )
               )
-              // Badge de Agente / LLM ativo
+              // Badge de Agente LLM
               .when(Boolean(agent), (el) =>
                 el.child(
-                  div()
+                  h_flex()
+                    .gap(4)
+                    .items_center()
                     .px(6)
                     .py(1)
-                    .rounded(4)
+                    .rounded(9999)
                     .text_size(10.5)
-                    .bg(agent.status === "working" ? t.working : t.raised)
+                    .bg(agent.status === "working" ? (t.working ?? t.raised) : t.raised)
                     .text_color(t.foreground)
+                    .child(ICON("bot", 11, agent.status === "working" ? t.accent : t.muted))
                     .child(
-                      agent.status === "working"
-                        ? `🤖 ${agent.name} (ativo)`
-                        : `🤖 ${agent.name}`
+                      div().child(
+                        agent.status === "working"
+                          ? `${agent.name} (ativo)`
+                          : agent.name
+                      )
                     )
                 )
               )
-              // Badge de alterações locais (LLM ou Humano)
+              // Badge de Alterações
               .when(hasDirty, (el) =>
                 el.child(
-                  div()
+                  h_flex()
+                    .gap(4)
+                    .items_center()
                     .px(6)
                     .py(1)
-                    .rounded(4)
+                    .rounded(9999)
                     .text_size(10.5)
                     .bg(t.accent)
-                    .text_color(t.accent_foreground)
-                    .child(`● ${stat.count} arqs alterados`)
+                    .child(ICON("diff", 10, t.accent_foreground))
+                    .child(
+                      div()
+                        .font_medium()
+                        .text_color(t.accent_foreground)
+                        .child(`${stat.count} modif.`)
+                    )
                 )
               )
               // Ahead / Behind
               .when(ahead > 0 || behind > 0, (el) =>
                 el.child(
-                  div()
-                    .text_size(11)
-                    .text_color(behind > 0 ? t.ansi3 || t.muted : t.dim)
-                    .child(`↑${ahead} ↓${behind}`)
+                  h_flex()
+                    .gap(4)
+                    .items_center()
+                    .text_size(10.5)
+                    .text_color(behind > 0 ? (t.ansi3 || t.muted) : t.dim)
+                    .when(ahead > 0, (h) =>
+                      h.child(h_flex().gap(1).items_center().child(ICON("arrow-up", 10, t.dim)).child(div().child(String(ahead))))
+                    )
+                    .when(behind > 0, (h) =>
+                      h.child(h_flex().gap(1).items_center().child(ICON("arrow-down", 10, t.ansi3 || t.muted)).child(div().child(String(behind))))
+                    )
                 )
               )
           )
           .child(
-            div()
-              .truncate()
-              .text_size(11)
-              .text_color(t.dim)
-              .child(tilde(wt.path, this.userHome))
+            h_flex()
+              .gap(4)
+              .items_center()
+              .child(ICON("folder", 11, t.dim))
+              .child(
+                div()
+                  .truncate()
+                  .text_size(11)
+                  .text_color(t.dim)
+                  .child(tilde(wt.path, this.userHome))
+              )
           )
       )
       .child(
-        // Lado Direito: Ações
+        // Lado Direito: Ações Refinadas
         h_flex()
           .gap(6)
           .items_center()
@@ -1156,11 +1252,11 @@ export default ${JSON.stringify(CONFIG, null, 2)};
               h_flex()
                 .id(`btn-diff-${wt.path}`)
                 .cursor_pointer()
-                .px(7)
-                .py(3)
-                .gap(5)
+                .px(8)
+                .py(4)
+                .gap(4)
                 .items_center()
-                .rounded(4)
+                .rounded(5)
                 .bg(t.raised)
                 .text_size(11.5)
                 .text_color(t.foreground)
@@ -1168,7 +1264,7 @@ export default ${JSON.stringify(CONFIG, null, 2)};
                 .on_click((_e, cx) =>
                   this.showDiff({ ...wt, repo_id: repoId }, cx)
                 )
-                .child(svg("mods/worktree/eye.svg").size(13).flex_none())
+                .child(ICON("diff", 12, t.foreground))
                 .child(div().child("Diff"))
             )
           )
@@ -1177,11 +1273,11 @@ export default ${JSON.stringify(CONFIG, null, 2)};
             h_flex()
               .id(`btn-sync-${wt.path}`)
               .cursor_pointer()
-              .px(7)
-              .py(3)
-              .gap(5)
+              .px(8)
+              .py(4)
+              .gap(4)
               .items_center()
-              .rounded(4)
+              .rounded(5)
               .bg(t.raised)
               .text_size(11.5)
               .text_color(sync.busy ? t.muted : t.foreground)
@@ -1190,78 +1286,85 @@ export default ${JSON.stringify(CONFIG, null, 2)};
                 this.syncBase({ ...wt, repo_id: repoId }, cx)
               )
               .child(
-                svg("mods/worktree/sync.svg")
-                  .size(13)
-                  .flex_none()
+                ICON("sync", 12, t.foreground)
                   .when(sync.busy, (el) => el.spin(900))
               )
-              .child(div().child(sync.busy ? "Sincronizando..." : "Sync"))
+              .child(div().child(sync.busy ? "..." : "Sync"))
           )
-          // Botão Zed (só se instalado)
-          .when(Boolean(this.editors?.zed), (el) =>
+          // Grupo Segmentado de Editores (Clean & Compacto)
+          .when(Boolean(this.editors?.zed || this.editors?.intellij || this.editors?.nvim), (el) =>
             el.child(
-              div()
-                .id(`btn-zed-${wt.path}`)
-                .cursor_pointer()
-                .px(7)
-                .py(3)
-                .rounded(4)
+              h_flex()
+                .rounded(5)
+                .border(1)
+                .border_color(t.border)
                 .bg(t.raised)
-                .text_size(11)
-                .text_color(t.foreground)
-                .hover((s) => s.bg(t.hover))
-                .on_click(() => this.openZed(wt))
-                .child("Zed")
+                .items_center()
+                .when(Boolean(this.editors?.zed), (g) =>
+                  g.child(
+                    div()
+                      .id(`btn-zed-${wt.path}`)
+                      .cursor_pointer()
+                      .px(6)
+                      .py(3)
+                      .text_size(11)
+                      .font_medium()
+                      .text_color(t.foreground)
+                      .hover((s) => s.bg(t.hover).text_color(t.accent))
+                      .on_click(() => this.openZed(wt))
+                      .child("Zed")
+                  )
+                )
+                .when(Boolean(this.editors?.intellij), (g) =>
+                  g.child(
+                    div()
+                      .id(`btn-idea-${wt.path}`)
+                      .cursor_pointer()
+                      .px(6)
+                      .py(3)
+                      .text_size(11)
+                      .font_medium()
+                      .text_color(t.foreground)
+                      .hover((s) => s.bg(t.hover).text_color(t.accent))
+                      .on_click(() => this.openIntelliJ(wt))
+                      .child("IDEA")
+                  )
+                )
+                .when(Boolean(this.editors?.nvim), (g) =>
+                  g.child(
+                    div()
+                      .id(`btn-nvim-${wt.path}`)
+                      .cursor_pointer()
+                      .px(6)
+                      .py(3)
+                      .text_size(11)
+                      .font_medium()
+                      .text_color(t.foreground)
+                      .hover((s) => s.bg(t.hover).text_color(t.accent))
+                      .on_click(() => this.openNvim(wt))
+                      .child("Nvim")
+                  )
+                )
             )
           )
-          // Botão IntelliJ (só se instalado)
-          .when(Boolean(this.editors?.intellij), (el) =>
-            el.child(
-              div()
-                .id(`btn-idea-${wt.path}`)
-                .cursor_pointer()
-                .px(7)
-                .py(3)
-                .rounded(4)
-                .bg(t.raised)
-                .text_size(11)
-                .text_color(t.foreground)
-                .hover((s) => s.bg(t.hover))
-                .on_click(() => this.openIntelliJ(wt))
-                .child("IntelliJ")
-            )
-          )
-          // Botão Neovim (só se instalado)
-          .when(Boolean(this.editors?.nvim), (el) =>
-            el.child(
-              div()
-                .id(`btn-nvim-${wt.path}`)
-                .cursor_pointer()
-                .px(7)
-                .py(3)
-                .rounded(4)
-                .bg(t.raised)
-                .text_size(11)
-                .text_color(t.foreground)
-                .hover((s) => s.bg(t.hover))
-                .on_click(() => this.openNvim(wt))
-                .child("Neovim")
-            )
-          )
-          // Botão Abrir Space
+          // Botão Abrir Space (Ação Primária)
           .child(
-            div()
+            h_flex()
               .id(`btn-open-${wt.path}`)
               .cursor_pointer()
-              .px(8)
-              .py(3)
-              .rounded(4)
+              .px(10)
+              .py(4)
+              .gap(4)
+              .items_center()
+              .rounded(5)
               .bg(t.solid)
               .text_size(11.5)
+              .font_medium()
               .text_color(t.solid_foreground)
               .hover((s) => s.bg(t.hover))
               .on_click(() => this.openSpace(wt))
-              .child("Space")
+              .child(ICON("external", 11, t.solid_foreground))
+              .child(div().child("Space"))
           )
       );
   }
@@ -1583,12 +1686,12 @@ export default ${JSON.stringify(CONFIG, null, 2)};
     const repoList = this.repos.map((r) => r.repo_id);
 
     return v_flex()
-      .id("orchestrator-create-view")
+      .id("worktree-create-view")
       .track_focus(this.handle)
       .on_key_down((e, cx) => this.key(e, cx))
       .size_full()
-      .p(16)
-      .gap(14)
+      .p(18)
+      .gap(16)
       .bg(t.popover)
       .child(
         // Header
@@ -1596,19 +1699,27 @@ export default ${JSON.stringify(CONFIG, null, 2)};
           .items_center()
           .justify_between()
           .child(
-            div()
-              .font_bold()
-              .text_size(15)
-              .text_color(t.foreground)
-              .child("Nova Worktree")
+            h_flex()
+              .gap(8)
+              .items_center()
+              .child(ICON("add", 16, t.accent))
+              .child(
+                div()
+                  .font_bold()
+                  .text_size(16)
+                  .text_color(t.foreground)
+                  .child("Nova Worktree")
+              )
           )
           .child(
-            div()
+            h_flex()
               .id("btn-cancel-create")
               .cursor_pointer()
               .px(10)
-              .py(4)
-              .rounded(5)
+              .py(5)
+              .gap(5)
+              .items_center()
+              .rounded(6)
               .bg(t.raised)
               .text_size(12)
               .text_color(t.foreground)
@@ -1618,44 +1729,50 @@ export default ${JSON.stringify(CONFIG, null, 2)};
                 this.createError = "";
                 cx.notify();
               })
-              .child("← Voltar (Esc)")
+              .child(ICON("close", 12, t.muted))
+              .child(div().child("Cancelar (Esc)"))
           )
       )
       .child(
         // 1. Escolha de Repositório
         v_flex()
-          .gap(6)
+          .gap(8)
           .child(
             div()
               .font_semibold()
-              .text_size(12)
-              .text_color(t.muted)
-              .child("1. Selecione o Repositório")
+              .text_size(12.5)
+              .text_color(t.foreground)
+              .child("1. Repositório Base")
           )
           .child(
             h_flex()
-              .gap(6)
+              .gap(8)
+              .wrap()
               .items_center()
               .children(
-                repoList.slice(0, 8).map((rId) => {
+                repoList.slice(0, 10).map((rId) => {
                   const isSel = this.newRepo === rId;
-                  return div()
+                  return h_flex()
                     .id(`chip-repo-${rId}`)
                     .cursor_pointer()
-                    .px(8)
-                    .py(4)
-                    .rounded(5)
-                    .text_size(11.5)
-                    .bg(isSel ? t.accent : t.surface)
-                    .text_color(isSel ? t.accent_foreground : t.foreground)
+                    .px(10)
+                    .py(6)
+                    .gap(5)
+                    .items_center()
+                    .rounded(6)
                     .border(1)
                     .border_color(isSel ? t.accent : t.border)
+                    .bg(isSel ? t.accent : t.surface)
+                    .text_size(12)
+                    .font_medium()
+                    .text_color(isSel ? t.accent_foreground : t.foreground)
                     .hover((s) => (!isSel ? s.bg(t.raised) : null))
                     .on_click((_e, cx) => {
                       this.newRepo = rId;
                       cx.notify();
                     })
-                    .child(rId);
+                    .child(ICON("repo", 12, isSel ? t.accent_foreground : t.dim))
+                    .child(div().child(rId));
                 })
               )
           )
@@ -1663,36 +1780,46 @@ export default ${JSON.stringify(CONFIG, null, 2)};
       .child(
         // 2. Nome da Branch
         v_flex()
-          .gap(6)
+          .gap(8)
           .child(
             div()
               .font_semibold()
-              .text_size(12)
-              .text_color(t.muted)
-              .child("2. Nome da Branch")
+              .text_size(12.5)
+              .text_color(t.foreground)
+              .child("2. Nome da Nova Branch")
           )
           .child(
-            Input.new(this.branchInput)
-              .h(34)
-              .px(10)
+            h_flex()
               .items_center()
-              .rounded(6)
+              .px(10)
+              .h(38)
+              .rounded(8)
               .border(1)
-              .border_color(t.input)
+              .border_color(t.border)
               .bg(t.background)
-              .text_color(t.foreground)
+              .gap(8)
+              .child(ICON("branch", 14, t.accent))
+              .child(
+                Input.new(this.branchInput)
+                  .flex_1()
+                  .h(34)
+                  .border(0)
+                  .bg("#00000000")
+                  .text_color(t.foreground)
+                  .text_size(12.5)
+              )
           )
       )
       .child(
-        // 3. Localização da Pasta (Orchestrator vs Herdr)
+        // 3. Local de Criação
         v_flex()
-          .gap(6)
+          .gap(8)
           .child(
             div()
               .font_semibold()
-              .text_size(12)
-              .text_color(t.muted)
-              .child("3. Onde criar o diretório?")
+              .text_size(12.5)
+              .text_color(t.foreground)
+              .child("3. Local do Checkout")
           )
           .child(
             h_flex()
@@ -1701,9 +1828,9 @@ export default ${JSON.stringify(CONFIG, null, 2)};
                 h_flex()
                   .id("btn-opt-orch")
                   .cursor_pointer()
-                  .p(10)
+                  .p(12)
                   .flex_1()
-                  .rounded(6)
+                  .rounded(8)
                   .border(1)
                   .border_color(
                     this.newLocation === "orchestrator" ? t.accent : t.border
@@ -1715,6 +1842,9 @@ export default ${JSON.stringify(CONFIG, null, 2)};
                     this.newLocation = "orchestrator";
                     cx.notify();
                   })
+                  .gap(10)
+                  .items_center()
+                  .child(ICON("code", 18, this.newLocation === "orchestrator" ? t.accent : t.dim))
                   .child(
                     v_flex()
                       .gap(2)
@@ -1728,7 +1858,7 @@ export default ${JSON.stringify(CONFIG, null, 2)};
                         div()
                           .text_size(11)
                           .text_color(t.dim)
-                          .child("~/orchestrator/worktrees (compatível com Docker/k3s)")
+                          .child("~/orchestrator/worktrees")
                       )
                   )
               )
@@ -1736,9 +1866,9 @@ export default ${JSON.stringify(CONFIG, null, 2)};
                 h_flex()
                   .id("btn-opt-herdr")
                   .cursor_pointer()
-                  .p(10)
+                  .p(12)
                   .flex_1()
-                  .rounded(6)
+                  .rounded(8)
                   .border(1)
                   .border_color(
                     this.newLocation === "herdr" ? t.accent : t.border
@@ -1748,6 +1878,9 @@ export default ${JSON.stringify(CONFIG, null, 2)};
                     this.newLocation = "herdr";
                     cx.notify();
                   })
+                  .gap(10)
+                  .items_center()
+                  .child(ICON("terminal", 18, this.newLocation === "herdr" ? t.accent : t.dim))
                   .child(
                     v_flex()
                       .gap(2)
@@ -1761,7 +1894,7 @@ export default ${JSON.stringify(CONFIG, null, 2)};
                         div()
                           .text_size(11)
                           .text_color(t.dim)
-                          .child("~/.herdr/worktrees (padrão dos menus nativos do Herdr)")
+                          .child("~/.herdr/worktrees")
                       )
                   )
               )
@@ -1770,9 +1903,11 @@ export default ${JSON.stringify(CONFIG, null, 2)};
       .when(Boolean(this.createError), (el) =>
         el.child(
           div()
-            .p(8)
-            .rounded(5)
+            .p(10)
+            .rounded(6)
             .bg(t.surface)
+            .border(1)
+            .border_color(t.blocked)
             .text_color(t.blocked)
             .child(`Erro: ${this.createError}`)
         )
@@ -1783,11 +1918,13 @@ export default ${JSON.stringify(CONFIG, null, 2)};
           .gap(10)
           .items_center()
           .child(
-            div()
+            h_flex()
               .id("btn-submit-create")
               .cursor_pointer()
-              .px(14)
-              .py(8)
+              .px(16)
+              .py(9)
+              .gap(6)
+              .items_center()
               .rounded(6)
               .bg(t.solid)
               .font_semibold()
@@ -1795,10 +1932,13 @@ export default ${JSON.stringify(CONFIG, null, 2)};
               .text_color(t.solid_foreground)
               .hover((s) => s.bg(t.hover))
               .on_click((_e, cx) => this.submitCreate(cx))
+              .child(ICON("add", 14, t.solid_foreground))
               .child(
-                this.createBusy
-                  ? "Criando Worktree..."
-                  : "Criar e Abrir Space no Herdr"
+                div().child(
+                  this.createBusy
+                    ? "Criando Worktree..."
+                    : "Criar e Abrir Space no Herdr"
+                )
               )
           )
       );
@@ -1809,41 +1949,50 @@ export default ${JSON.stringify(CONFIG, null, 2)};
     const diffLines = (this.diffText || "").split("\n");
 
     return v_flex()
-      .id("orchestrator-diff-view")
+      .id("worktree-diff-view")
       .track_focus(this.handle)
       .on_key_down((e, cx) => this.key(e, cx))
       .size_full()
       .p(16)
-      .gap(10)
+      .gap(12)
       .bg(t.popover)
       .child(
-        // Header do Diff
+        // Header do Diff Moderno
         h_flex()
           .items_center()
           .justify_between()
           .child(
-            v_flex()
+            h_flex()
+              .gap(10)
+              .items_center()
+              .child(ICON("diff", 18, t.accent))
               .child(
-                div()
-                  .font_bold()
-                  .text_size(14)
-                  .text_color(t.foreground)
-                  .child(`Alterações em ${wt.repo_id} (${wt.branch})`)
-              )
-              .child(
-                div()
-                  .text_size(11)
-                  .text_color(t.dim)
-                  .child(tilde(wt.path, this.userHome))
+                v_flex()
+                  .gap(2)
+                  .child(
+                    div()
+                      .font_bold()
+                      .text_size(14)
+                      .text_color(t.foreground)
+                      .child(`Alterações em ${wt.repo_id} (${wt.branch})`)
+                  )
+                  .child(
+                    div()
+                      .text_size(11)
+                      .text_color(t.dim)
+                      .child(tilde(wt.path, this.userHome))
+                  )
               )
           )
           .child(
-            div()
+            h_flex()
               .id("btn-back-from-diff")
               .cursor_pointer()
               .px(10)
-              .py(4)
-              .rounded(5)
+              .py(5)
+              .gap(5)
+              .items_center()
+              .rounded(6)
               .bg(t.raised)
               .text_size(12)
               .text_color(t.foreground)
@@ -1852,10 +2001,11 @@ export default ${JSON.stringify(CONFIG, null, 2)};
                 this.selectedWt = null;
                 cx.notify();
               })
-              .child("← Voltar para lista (Esc)")
+              .child(ICON("close", 12, t.muted))
+              .child(div().child("Voltar (Esc)"))
           )
       )
-      // Lista de arquivos alterados
+      // Lista de arquivos alterados em pills elegantes
       .when(this.diffFiles.length > 0, (el) =>
         el.child(
           h_flex()
@@ -1866,15 +2016,21 @@ export default ${JSON.stringify(CONFIG, null, 2)};
             .overflow_x_scroll()
             .children(
               this.diffFiles.map((f, i) =>
-                div()
+                h_flex()
                   .id(`file-${i}`)
-                  .px(6)
-                  .py(2)
+                  .px(8)
+                  .py(3)
+                  .gap(4)
+                  .items_center()
                   .rounded(4)
                   .bg(t.surface)
-                  .text_size(11)
-                  .text_color(t.foreground)
-                  .child(f)
+                  .child(ICON("diff", 10, t.dim))
+                  .child(
+                    div()
+                      .text_size(11)
+                      .text_color(t.foreground)
+                      .child(f)
+                  )
               )
             )
         )
@@ -1885,14 +2041,20 @@ export default ${JSON.stringify(CONFIG, null, 2)};
           .flex_1()
           .items_center()
           .justify_center()
-          .child(div().text_color(t.muted).child("Carregando diff..."))
+          .child(
+            h_flex()
+              .gap(8)
+              .items_center()
+              .child(ICON("sync", 14, t.accent).spin(900))
+              .child(div().text_color(t.muted).child("Carregando diff..."))
+          )
       )
       .when(!this.diffLoading, (el) =>
         el
           .flex_1()
           .min_h(0)
-          .rounded(6)
-          .p(10)
+          .rounded(8)
+          .p(12)
           .bg(t.background)
           .border(1)
           .border_color(t.border)
@@ -1905,10 +2067,10 @@ export default ${JSON.stringify(CONFIG, null, 2)};
                 diffLines.map((line, idx) => {
                   let textColor = t.foreground;
                   let lineBg = null;
-                  if (line.startsWith("+")) {
+                  if (line.startsWith("+") && !line.startsWith("+++")) {
                     textColor = t.ansi2 || "#3fae6a";
                     lineBg = t.hover;
-                  } else if (line.startsWith("-")) {
+                  } else if (line.startsWith("-") && !line.startsWith("---")) {
                     textColor = t.ansi1 || "#d9649a";
                     lineBg = t.hover;
                   } else if (line.startsWith("@")) {
