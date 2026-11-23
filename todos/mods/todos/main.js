@@ -658,9 +658,9 @@ export default class Todos extends View {
       rows: 10
     });
     this.modalGroupInput = InputState.new({ placeholder: "CARD-XXXX..." });
-    this.modalSubInput = InputState.new({ placeholder: "Add a subtask..." });
-    this.modalTagInput = InputState.new({ placeholder: "Add a tag..." });
-    this.modalLinkNameInput = InputState.new({ placeholder: "Label (MR, Card, PRD...)" });
+    this.modalSubInput = InputState.new({ placeholder: "Adicionar subtarefa..." });
+    this.modalTagInput = InputState.new({ placeholder: "Adicionar tag..." });
+    this.modalLinkNameInput = InputState.new({ placeholder: "Rótulo (MR, PRD...)" });
     this.modalLinkUrlInput = InputState.new({ placeholder: "https://..." });
     this.modalDeleteArmed = false;
 
@@ -672,18 +672,18 @@ export default class Todos extends View {
 
     // Modal de Criar Tarefa Completo
     this.showCreateModal = false;
-    this.createTitleInput = InputState.new({ placeholder: "What needs to be done?" });
-    this.createProjectInput = InputState.new({ placeholder: "Project name (e.g. orchestrator, evah)..." });
-    this.createGroupInput = InputState.new({ placeholder: "CARD-XXXX / EVAH-XXXX (optional)" });
+    this.createTitleInput = InputState.new({ placeholder: "O que precisa ser feito?" });
+    this.createProjectInput = InputState.new({ placeholder: "Nome do projeto..." });
+    this.createGroupInput = InputState.new({ placeholder: "CARD-XXXX (opcional)" });
     this.createGroupDropdownOpen = false;
     this.createDescTextarea = TextareaState.new({
       value: "",
-      placeholder: "Write specifications, details, error logs, or notes in Markdown...",
+      placeholder: "Escreva especificações, detalhes, logs ou notas em Markdown...",
       rows: 8
     });
     this.createPrioSelected = null;
     this.createInitialSubs = [];
-    this.createSubInput = InputState.new({ placeholder: "Add initial subtask..." });
+    this.createSubInput = InputState.new({ placeholder: "Adicionar subtarefa inicial..." });
 
     this.createTitleInput.on("submit", (_e, cx) => this.submitCreateModal(cx));
     this.createGroupInput.on("change", (_e, cx) => {
@@ -1699,11 +1699,11 @@ export default class Todos extends View {
     if (!this.showCreateModal) return div();
 
     const prios = [
-      { id: "Critical", label: "Critical", col: "#ef4444" },
-      { id: "High", label: "High", col: "#f59e0b" },
-      { id: "Medium", label: "Medium", col: "#3b82f6" },
-      { id: "Low", label: "Low", col: "#64748b" },
-      { id: null, label: "None", col: t.dim },
+      { id: "Critical", label: "Crítica", col: "#ef4444" },
+      { id: "High", label: "Alta", col: "#f59e0b" },
+      { id: "Medium", label: "Média", col: "#3b82f6" },
+      { id: "Low", label: "Baixa", col: "#64748b" },
+      { id: null, label: "Nenhuma", col: t.dim },
     ];
 
     const availableProjects = Object.entries(this.lists).map(([slug, l]) => ({
@@ -1735,20 +1735,20 @@ export default class Todos extends View {
             h_flex().id("btn-create-back").h(28).px(10).rounded(6).cursor_pointer().items_center().gap(5)
               .bg(t.accent + "22").border_1().border_color(t.accent + "55")
               .hover((s) => s.bg(t.accent + "38").border_color(t.accent))
-              .tooltip("Cancel and return to list (Esc)")
+              .tooltip("Cancelar e voltar para a lista (Esc)")
               .on_click((_e, cx) => this.closeCreateModal(cx))
               .child(svg("mods/workspace-chrome/chevron-left.svg").size(13).text_color(t.accent))
-              .child(div().text_size(12).font_semibold().text_color(t.accent).child("Back")),
+              .child(div().text_size(12).font_semibold().text_color(t.accent).child("Voltar")),
           )
           .child(div().w(1).h(16).bg(t.border))
           .child(
             h_flex().gap(6).items_center()
               .child(svg("mods/workspace-chrome/plus.svg").size(13).text_color(t.accent))
-              .child(div().font_semibold().text_size(13).child("Create New Task")),
+              .child(div().font_semibold().text_size(13).child("Criar Nova Tarefa")),
           )
           .child(div().flex_1())
           .child(
-            div().px(6).py(2).rounded(5).text_size(11).text_color(t.dim).child("Enter to create"),
+            div().px(6).py(2).rounded(5).text_size(11).text_color(t.dim).child("Enter para criar"),
           ),
       )
       // Scrollable Body
@@ -1757,7 +1757,7 @@ export default class Todos extends View {
           // 1. Task Title
           .child(
             v_flex().gap(6)
-              .child(div().text_size(11.5).font_semibold().text_color(t.muted).child("Task Title *"))
+              .child(div().text_size(11.5).font_semibold().text_color(t.muted).child("Título da Tarefa *"))
               .child(
                 Input.new(this.createTitleInput).h(36).px(10).rounded(8)
                   .border_1().border_color(t.accent).bg(t.raised)
@@ -1769,8 +1769,8 @@ export default class Todos extends View {
             v_flex().gap(6)
               .child(
                 h_flex().justify_between().items_center()
-                  .child(div().text_size(11.5).font_semibold().text_color(t.muted).child("Project (Name)"))
-                  .child(div().text_size(10.5).text_color(t.dim).child("Click project chip below or type name")),
+                  .child(div().text_size(11.5).font_semibold().text_color(t.muted).child("Projeto"))
+                  .child(div().text_size(10.5).text_color(t.dim).child("Clique no projeto abaixo ou digite o nome")),
               )
               .child(
                 Input.new(this.createProjectInput).h(32).px(9).rounded(7)
@@ -1802,7 +1802,7 @@ export default class Todos extends View {
                 v_flex().flex_1().min_w(0).gap(6)
                   .child(
                     h_flex().justify_between().items_center()
-                      .child(div().text_size(11.5).font_semibold().text_color(t.muted).child("Card / Group"))
+                      .child(div().text_size(11.5).font_semibold().text_color(t.muted).child("Card / Grupo"))
                       .when(this.createGroupDropdownOpen, (b) =>
                         b.child(
                           h_flex().gap(3).items_center().cursor_pointer()
@@ -1811,7 +1811,7 @@ export default class Todos extends View {
                               cx.notify();
                             })
                             .child(svg("mods/workspace-chrome/chevron-up.svg").size(10).text_color(t.dim))
-                            .child(div().text_size(10.5).text_color(t.dim).hover((s) => s.text_color(t.foreground)).child("Close suggestions"))
+                            .child(div().text_size(10.5).text_color(t.dim).hover((s) => s.text_color(t.foreground)).child("Fechar sugestões"))
                         )
                       )
                   )
@@ -1826,7 +1826,7 @@ export default class Todos extends View {
                         b.child(
                           div().id("btn-clear-group").size(18).rounded(4).cursor_pointer().flex().items_center().justify_center()
                             .hover((s) => s.bg(t.hover))
-                            .tooltip("Clear")
+                            .tooltip("Limpar")
                             .on_click((_e, cx) => {
                               this.createGroupInput.set_value("");
                               this.createGroupDropdownOpen = true;
@@ -1838,7 +1838,7 @@ export default class Todos extends View {
                       .child(
                         div().id("btn-toggle-group-dropdown").size(20).rounded(4).cursor_pointer().flex().items_center().justify_center()
                           .hover((s) => s.bg(t.hover))
-                          .tooltip(this.createGroupDropdownOpen ? "Hide suggestions" : "Show card suggestions")
+                          .tooltip(this.createGroupDropdownOpen ? "Ocultar sugestões" : "Mostrar sugestões de card")
                           .on_click((_e, cx) => {
                             this.createGroupDropdownOpen = !this.createGroupDropdownOpen;
                             cx.notify();
@@ -1867,7 +1867,7 @@ export default class Todos extends View {
                                 cx.notify();
                               })
                               .child(div().text_size(11).font_bold().text_color(t.accent).child("+"))
-                              .child(div().text_size(11.5).font_semibold().text_color(t.accent).child(`Use new card #${normalizeCard(currentGroup)}`))
+                              .child(div().text_size(11.5).font_semibold().text_color(t.accent).child(`Usar novo card #${normalizeCard(currentGroup)}`))
                           )
                         )
                         .children(matchingCards.slice(0, 10).map((c) => {
@@ -1891,7 +1891,7 @@ export default class Todos extends View {
                         }))
                         .when(matchingCards.length === 0 && !query, (box) =>
                           box.child(
-                            div().px(8).py(6).text_size(11).text_color(t.dim).child("No cards found. Type a card name.")
+                            div().px(8).py(6).text_size(11).text_color(t.dim).child("Nenhum card encontrado. Digite um nome.")
                           )
                         )
                     );
@@ -1900,7 +1900,7 @@ export default class Todos extends View {
               // Priority
               .child(
                 v_flex().flex_none().gap(6)
-                  .child(div().text_size(11.5).font_semibold().text_color(t.muted).child("Priority"))
+                  .child(div().text_size(11.5).font_semibold().text_color(t.muted).child("Prioridade"))
                   .child(
                     h_flex().gap(4).items_center()
                       .children(prios.map((p) => {
@@ -1924,8 +1924,8 @@ export default class Todos extends View {
             v_flex().gap(6)
               .child(
                 h_flex().justify_between().items_center()
-                  .child(div().text_size(11.5).font_semibold().text_color(t.muted).child("Description / Specs (Markdown)"))
-                  .child(div().text_size(10.5).text_color(t.dim).child("Supports Markdown formatting")),
+                  .child(div().text_size(11.5).font_semibold().text_color(t.muted).child("Descrição & Detalhes (Markdown)"))
+                  .child(div().text_size(10.5).text_color(t.dim).child("Suporta formatação Markdown")),
               )
               .child(
                 div().w_full().min_h(140).h(180).rounded(8).border_1().border_color("#ffffff44").bg("#0c2818").p(8).overflow_hidden()
@@ -1938,7 +1938,7 @@ export default class Todos extends View {
           // 5. Initial Subtasks
           .child(
             v_flex().gap(6)
-              .child(div().text_size(11.5).font_semibold().text_color(t.muted).child("Subtasks (optional)"))
+              .child(div().text_size(11.5).font_semibold().text_color(t.muted).child("Subtarefas (opcional)"))
               .child(
                 h_flex().gap(6).items_center()
                   .child(Input.new(this.createSubInput).flex_1().h(30).px(8).rounded(6).border_1().border_color(t.border).bg(t.raised).text_size(12).text_color(t.foreground))
@@ -1953,7 +1953,7 @@ export default class Todos extends View {
                           cx.notify();
                         }
                       })
-                      .child(div().text_size(11).font_medium().text_color(t.foreground).child("+ Add")),
+                      .child(div().text_size(11).font_medium().text_color(t.foreground).child("+ Adicionar")),
                   ),
               )
               .when(this.createInitialSubs.length > 0, (el) =>
@@ -1983,14 +1983,14 @@ export default class Todos extends View {
             h_flex().id("btn-create-cancel").h(32).px(14).rounded(8).border_1().border_color(t.border).cursor_pointer().items_center().justify_center()
               .hover((s) => s.bg(t.hover))
               .on_click((_e, cx) => this.closeCreateModal(cx))
-              .child(div().text_size(12).font_medium().text_color(t.muted).child("Cancel")),
+              .child(div().text_size(12).font_medium().text_color(t.muted).child("Cancelar")),
           )
           .child(
             h_flex().id("btn-create-submit").h(32).px(16).rounded(8).bg(t.accent).cursor_pointer().items_center().justify_center().gap(6)
               .hover((s) => s.opacity(0.88))
               .on_click((_e, cx) => this.submitCreateModal(cx))
               .child(svg("mods/workspace-chrome/check.svg").size(13).text_color("#ffffff"))
-              .child(div().text_size(12.5).font_semibold().text_color("#ffffff").child("Create Task")),
+              .child(div().text_size(12.5).font_semibold().text_color("#ffffff").child("Criar Tarefa")),
           ),
       );
   }
@@ -2006,11 +2006,11 @@ export default class Todos extends View {
     const folder = this.lists[slug]?.folder;
     const key = `${slug}:${i}`;
     const prios = [
-      { id: "Critical", label: "Critical", col: "#ef4444" },
-      { id: "High", label: "High", col: "#f59e0b" },
-      { id: "Medium", label: "Medium", col: "#3b82f6" },
-      { id: "Low", label: "Low", col: "#64748b" },
-      { id: null, label: "None", col: t.dim },
+      { id: "Critical", label: "Crítica", col: "#ef4444" },
+      { id: "High", label: "Alta", col: "#f59e0b" },
+      { id: "Medium", label: "Média", col: "#3b82f6" },
+      { id: "Low", label: "Baixa", col: "#64748b" },
+      { id: null, label: "Nenhuma", col: t.dim },
     ];
     const subtasks = task.subtasks ?? [];
     const subDone = subtasks.filter((s) => s.done).length;
@@ -2027,13 +2027,13 @@ export default class Todos extends View {
                 h_flex().id("btn-modal-back").h(28).px(10).rounded(6).cursor_pointer().items_center().gap(5)
                   .bg(t.accent + "22").border_1().border_color(t.accent + "55")
                   .hover((s) => s.bg(t.accent + "38").border_color(t.accent))
-                  .tooltip("Back to list (Esc)")
+                  .tooltip("Voltar para a lista (Esc)")
                   .on_click((_e, cx) => this.closeDetailModal(cx))
                   .child(svg("mods/workspace-chrome/chevron-left.svg").size(13).text_color(t.accent))
-                  .child(div().text_size(12).font_semibold().text_color(t.accent).child("Back"))
+                  .child(div().text_size(12).font_semibold().text_color(t.accent).child("Voltar"))
               )
               .child(div().w(1).h(16).bg(t.border))
-              .child(div().font_semibold().text_size(12.5).child(`Task #${i + 1}`))
+              .child(div().font_semibold().text_size(12.5).child(`Tarefa #${i + 1}`))
               .when(Boolean(folder), (el) => el.child(
                 div().px(6).py(1).rounded(9999).bg(this.color(folder, t) + "22").text_size(10).font_medium()
                   .text_color(this.color(folder, t)).child(this.name(folder))
@@ -2044,7 +2044,7 @@ export default class Todos extends View {
                 h_flex().items_center().gap(3)
                   .child(
                     div().id("btn-modal-prev").size(26).rounded(5).flex().items_center().justify_center()
-                      .tooltip("Previous task")
+                      .tooltip("Tarefa anterior")
                       .when(i > 0, (b) => b.cursor_pointer().hover((s) => s.bg(t.raised))
                         .on_click((_e, cx) => this.navModalPrev(cx))
                         .child(svg("mods/workspace-chrome/chevron-left.svg").size(12).text_color(t.foreground)))
@@ -2053,7 +2053,7 @@ export default class Todos extends View {
                   .child(div().text_size(11).font_family("JetBrains Mono").text_color(t.dim).px(4).child(`${i + 1}/${(this.lists[slug]?.items ?? []).length}`))
                   .child(
                     div().id("btn-modal-next").size(26).rounded(5).flex().items_center().justify_center()
-                      .tooltip("Next task")
+                      .tooltip("Próxima tarefa")
                       .when(i < (this.lists[slug]?.items ?? []).length - 1, (b) => b.cursor_pointer().hover((s) => s.bg(t.raised))
                         .on_click((_e, cx) => this.navModalNext(cx))
                         .child(svg("mods/workspace-chrome/chevron-right.svg").size(12).text_color(t.foreground)))
@@ -2087,7 +2087,7 @@ export default class Todos extends View {
                               .text_color(task.done ? t.dim : t.foreground)
                               .when(task.done, (st) => st.line_through())
                               .whitespace_normal()
-                              .tooltip("Click to edit title")
+                              .tooltip("Clique para editar o título")
                               .on_click((_e, cx) => {
                                 this.modalEditingTitle = true;
                                 this.modalTitleInput.set_value(task.text || "");
@@ -2098,7 +2098,7 @@ export default class Todos extends View {
                           .child(
                             div().id("btn-edit-title").size(24).rounded(5).cursor_pointer().flex_none().flex().items_center().justify_center()
                               .hover((s) => s.bg(t.raised))
-                              .tooltip("Edit title")
+                              .tooltip("Editar título")
                               .on_click((_e, cx) => {
                                 this.modalEditingTitle = true;
                                 this.modalTitleInput.set_value(task.text || "");
@@ -2119,23 +2119,23 @@ export default class Todos extends View {
                             div().h(30).px(10).rounded(6).bg(t.raised).cursor_pointer().flex().items_center().justify_center()
                               .hover((st) => st.bg(t.hover))
                               .on_click((_e, cx) => { this.modalEditingTitle = false; cx.notify(); })
-                              .child(div().text_size(11).text_color(t.muted).child("Cancel"))
+                              .child(div().text_size(11).text_color(t.muted).child("Cancelar"))
                           )
                           .child(
                             div().h(30).px(12).rounded(6).bg(t.accent).cursor_pointer().flex().items_center().justify_center()
                               .hover((st) => st.opacity(0.85))
                               .on_click((_e, cx) => this.saveModalTitle(cx))
-                              .child(div().text_size(11.5).font_semibold().text_color("#ffffff").child("Save"))
+                              .child(div().text_size(11.5).font_semibold().text_color("#ffffff").child("Salvar"))
                           )
                       ))
-                      .when(task.done && Boolean(task.doneOn), (b) => b.child(div().text_size(10.5).text_color(t.dim).child(`Done: ${task.doneOn}`)))
-                      .when(!task.done && Boolean(task.due), (b) => b.child(div().text_size(10.5).text_color(overdue(task.due) ? t.ansi1 : t.dim).child(`Due: ${task.due}`)))
+                      .when(task.done && Boolean(task.doneOn), (b) => b.child(div().text_size(10.5).text_color(t.dim).child(`Concluída: ${task.doneOn}`)))
+                      .when(!task.done && Boolean(task.due), (b) => b.child(div().text_size(10.5).text_color(overdue(task.due) ? t.ansi1 : t.dim).child(`Prazo: ${task.due}`)))
                   )
               )
               // Priority selector bar
               .child(
                 v_flex().gap(6)
-                  .child(div().text_size(11).font_semibold().text_color(t.muted).child("PRIORITY"))
+                  .child(div().text_size(11).font_semibold().text_color(t.muted).child("PRIORIDADE"))
                   .child(
                     h_flex().gap(6).flex_wrap().children(
                       prios.map((pr) => {
@@ -2154,7 +2154,7 @@ export default class Todos extends View {
               // Card / Group row
               .child(
                 v_flex().gap(6)
-                  .child(div().text_size(11).font_semibold().text_color(t.muted).child("CARD / GROUP"))
+                  .child(div().text_size(11).font_semibold().text_color(t.muted).child("CARD / GRUPO"))
                   .child(
                     h_flex().gap(6).items_center()
                       .child(Input.new(this.modalGroupInput).w(180).h(28).px(8).rounded(6).border_1().border_color(t.border).bg(t.background).text_size(12).text_color(t.foreground))
@@ -2162,7 +2162,7 @@ export default class Todos extends View {
                         div().h(28).px(10).rounded(6).bg(t.raised).border_1().border_color(t.border).cursor_pointer().flex().items_center().justify_center()
                           .hover((st) => st.bg(t.hover))
                           .on_click((_e, cx) => this.saveModalGroup(cx))
-                          .child(div().text_size(11).text_color(t.foreground).child("Update"))
+                          .child(div().text_size(11).text_color(t.foreground).child("Atualizar"))
                       )
                       .when(Boolean(task.group), (b) => b.child(
                         div().px(8).py(2).rounded(9999).bg(t.ansi6 + "22").border_1().border_color(t.ansi6 + "44")
@@ -2175,7 +2175,7 @@ export default class Todos extends View {
                 v_flex().w_full().gap(6)
                   .child(
                     h_flex().w_full().items_center().justify_between()
-                      .child(div().text_size(11).font_semibold().text_color(t.muted).child("DESCRIPTION & SPECS"))
+                      .child(div().text_size(11).font_semibold().text_color(t.muted).child("DESCRIÇÃO & ESPECIFICAÇÕES"))
                       .when(Boolean(task.description) && !this.modalEditingDesc, (b) => b.child(
                         div().cursor_pointer().flex().items_center().gap(3).hover((s) => s.opacity(0.8))
                           .on_click((_e, cx) => {
@@ -2184,7 +2184,7 @@ export default class Todos extends View {
                             cx.notify();
                           })
                           .child(svg("mods/todos/edit.svg").size(10).text_color(t.accent))
-                          .child(div().text_size(11).text_color(t.accent).child("Edit"))
+                          .child(div().text_size(11).text_color(t.accent).child("Editar"))
                       ))
                   )
                   // Editing mode: Textarea with matching elegant green background
@@ -2204,13 +2204,13 @@ export default class Todos extends View {
                                 div().h(26).px(10).rounded(5).cursor_pointer().flex().items_center().justify_center()
                                   .bg("#ffffff20").hover((s) => s.bg("#ffffff38"))
                                   .on_click((_e, cx) => { this.modalEditingDesc = false; cx.notify(); })
-                                  .child(div().text_size(11).text_color("#ffffff").child("Cancel"))
+                                  .child(div().text_size(11).text_color("#ffffff").child("Cancelar"))
                               )
                               .child(
                                 div().h(26).px(12).rounded(5).bg("#16a34a").cursor_pointer().flex().items_center().justify_center()
                                   .hover((s) => s.bg("#22c55e"))
                                   .on_click((_e, cx) => this.saveModalDesc(cx))
-                                  .child(div().text_size(11).font_semibold().text_color("#ffffff").child("Save"))
+                                  .child(div().text_size(11).font_semibold().text_color("#ffffff").child("Salvar"))
                               )
                           )
                       )
@@ -2220,7 +2220,7 @@ export default class Todos extends View {
                     Boolean(task.description)
                       ? div().id("desc-markdown-box").w_full().min_h(220).max_h(440).overflow_y_scrollbar().overflow_x_hidden()
                           .p(12).rounded(8).border_1().border_color("#ffffff44").bg("#0c2818")
-                          .cursor_pointer().tooltip("Click to edit description")
+                          .cursor_pointer().tooltip("Clique para editar a descrição")
                           .on_click((_e, cx) => {
                             this.modalEditingDesc = true;
                             this.modalDescTextarea.set_value(task.description || "");
@@ -2242,7 +2242,7 @@ export default class Todos extends View {
                             cx.notify();
                           })
                           .child(svg("mods/todos/edit.svg").size(11).text_color(t.muted))
-                          .child(div().text_size(11.5).text_color(t.muted).child("+ Add markdown description / specs..."))
+                          .child(div().text_size(11.5).text_color(t.muted).child("+ Adicionar descrição / especificações em Markdown..."))
                   ))
               )
               // Subtasks section
@@ -2250,8 +2250,8 @@ export default class Todos extends View {
                 v_flex().gap(6)
                   .child(
                     h_flex().items_center().justify_between()
-                      .child(div().text_size(11).font_semibold().text_color(t.muted).child(`SUBTASKS (${subDone}/${subTotal})`))
-                      .when(subTotal > 0, (b) => b.child(div().text_size(10.5).text_color(t.dim).child(`${pct}% complete`)))
+                      .child(div().text_size(11).font_semibold().text_color(t.muted).child(`SUBTAREFAS (${subDone}/${subTotal})`))
+                      .when(subTotal > 0, (b) => b.child(div().text_size(10.5).text_color(t.dim).child(`${pct}% concluído`)))
                   )
                   // Progress bar
                   .when(subTotal > 0, (b) => b.child(
@@ -2285,14 +2285,14 @@ export default class Todos extends View {
                         div().h(28).px(10).rounded(6).bg(t.accent + "22").border_1().border_color(t.accent).cursor_pointer().flex().items_center().justify_center()
                           .hover((st) => st.bg(t.accent + "44"))
                           .on_click((_e, cx) => this.saveModalSub(cx))
-                          .child(div().text_size(11.5).font_semibold().text_color(t.accent).child("+ Add"))
+                          .child(div().text_size(11.5).font_semibold().text_color(t.accent).child("+ Adicionar"))
                       )
                   )
               )
               // Links & URLs section
               .child(
                 v_flex().gap(6)
-                  .child(div().text_size(11).font_semibold().text_color(t.muted).child("LINKS & REFERENCES"))
+                  .child(div().text_size(11).font_semibold().text_color(t.muted).child("LINKS & REFERÊNCIAS"))
                   .when(Boolean(task.urls?.length), (b) => b.child(
                     h_flex().gap(6).flex_wrap().children((task.urls ?? []).map((u, ui) =>
                       h_flex().h(26).px(8).rounded(6).bg(t.background).border_1().border_color(t.border).gap(5).items_center()
@@ -2355,7 +2355,7 @@ export default class Todos extends View {
                   .border_1().border_color(this.modalDeleteArmed ? t.ansi1 : t.border)
                   .bg(this.modalDeleteArmed ? t.ansi1 + "26" : t.background)
                   .hover((s) => s.bg(t.ansi1 + "20").border_color(t.ansi1))
-                  .tooltip(this.modalDeleteArmed ? "Click again to confirm delete" : "Delete task")
+                  .tooltip(this.modalDeleteArmed ? "Clique novamente para confirmar a exclusão" : "Excluir tarefa")
                   .on_click((_e, cx) => {
                     if (!this.modalDeleteArmed) {
                       this.modalDeleteArmed = true;
@@ -2366,21 +2366,21 @@ export default class Todos extends View {
                     cx.notify();
                   })
                   .child(svg("mods/todos/trash.svg").size(14).text_color(this.modalDeleteArmed ? t.ansi1 : t.muted))
-                  .when(this.modalDeleteArmed, (b) => b.child(div().text_size(11).font_semibold().text_color(t.ansi1).child("Confirm?")))
+                  .when(this.modalDeleteArmed, (b) => b.child(div().text_size(11).font_semibold().text_color(t.ansi1).child("Confirmar?")))
               )
               // Run Agent Button (Modern styled button)
               .when(this.agentChoices?.length > 0 && !task.done, (el) => el.child(
                 h_flex().id("btn-modal-agent").h(32).px(12).gap(6).rounded(6).cursor_pointer().items_center().justify_center()
                   .bg(t.accent + "18").border_1().border_color(t.accent + "55")
                   .hover((s) => s.bg(t.accent + "33").border_color(t.accent))
-                  .tooltip("Start an autonomous agent on this task")
+                  .tooltip("Iniciar um agente autônomo nesta tarefa")
                   .on_click((_e, cx) => {
                     this.closeDetailModal(cx);
                     this.startFor = key;
                     cx.notify();
                   })
                   .child(svg("mods/todos/bot.svg").size(13).text_color(t.accent))
-                  .child(div().text_size(11.5).font_semibold().text_color(t.accent).child("Run Agent"))
+                  .child(div().text_size(11.5).font_semibold().text_color(t.accent).child("Executar Agente"))
                   .child(svg("mods/workspace-chrome/chevron-right.svg").size(10).text_color(t.accent))
               ))
               .child(div().flex_1())
@@ -2391,7 +2391,7 @@ export default class Todos extends View {
                   .hover((s) => s.bg(task.done ? t.hover : t.ansi2 + "38"))
                   .on_click((_e, cx) => this.toggleModalTaskDone(cx))
                   .child(svg(task.done ? "mods/todos/sync.svg" : "mods/workspace-chrome/check.svg").size(12).text_color(task.done ? t.muted : t.ansi2))
-                  .child(div().text_size(11.5).font_semibold().text_color(task.done ? t.muted : t.ansi2).child(task.done ? "Mark as Open" : "Mark as Done"))
+                  .child(div().text_size(11.5).font_semibold().text_color(task.done ? t.muted : t.ansi2).child(task.done ? "Reabrir Tarefa" : "Concluir Tarefa"))
               )
           );
   }
@@ -2490,7 +2490,7 @@ export default class Todos extends View {
           div().px(6).py(1).rounded(9999).border_1().border_color(prioColor + "44").bg(prioColor + "14")
             .text_size(10).font_semibold().text_color(prioColor).cursor_pointer()
             .hover((st) => st.bg(prioColor + "28"))
-            .tooltip(`Priority: ${x.priority} (click to cycle)`)
+            .tooltip(`Prioridade: ${x.priority} (clique para alternar)`)
             .on_click((_e, cx) => this.cycleTaskPrio(key, cx))
             .child(x.priority)
         ))
@@ -2503,7 +2503,7 @@ export default class Todos extends View {
         .when(Boolean(x.description) && !editing, (el) => el.child(
           div().px(5).py(1).rounded(4).bg(t.accent + "18").border_1().border_color(t.accent + "33")
             .text_size(9.5).font_medium().text_color(t.accent).cursor_pointer()
-            .tooltip("Has specs / description (click to view)")
+            .tooltip("Possui detalhes / especificações (clique para ver)")
             .on_click((e, cx) => { cx.stop_propagation(); this.openDetailModal(x, cx); })
             .child("desc")
         ))
@@ -2512,7 +2512,7 @@ export default class Todos extends View {
           h_flex().id(`exp-${key}`).h(20).px(5).gap(3).items_center().rounded(5).bg(t.raised).cursor_pointer()
             .border_1().border_color(t.border)
             .hover((st) => st.bg(t.hover).border_color(t.accent))
-            .tooltip(isExp ? "Collapse subtasks" : "Expand subtasks")
+            .tooltip(isExp ? "Recolher subtarefas" : "Expandir subtarefas")
             .on_click((_e, cx) => { cx.stop_propagation(); this.toggleExpand(key, cx); })
             .child(svg(`mods/workspace-chrome/chevron-${isExp ? "down" : "right"}.svg`).size(8).text_color(t.muted))
             .child(div().text_size(10).font_semibold().text_color(subDone === subTotal ? t.ansi2 : t.muted).child(`${subDone}/${subTotal}`))
@@ -2522,7 +2522,7 @@ export default class Todos extends View {
           ? Input.new(this.editInput).flex_1().h(28).px(8).rounded(6).border_1().border_color(t.accent).bg(t.background).text_size(13).text_color(t.foreground)
           : div().id(`text-${key}`).flex_1().min_w(0).text_size(13).line_height("19px").text_color(x.done ? t.dim : t.foreground).when(x.done, (el) => el.line_through())
             .truncate().cursor_pointer()
-            .tooltip(x.text.length > 40 ? x.text : "Click to view details")
+            .tooltip(x.text.length > 40 ? x.text : "Clique para ver detalhes")
             .on_click((e, cx) => {
               if (e.click_count === 2 && !multi(e)) {
                 this.editing = { slug: x.slug, i: x.i };
@@ -2542,18 +2542,18 @@ export default class Todos extends View {
         .when(hovered && !editing, (el) => el.child(
           h_flex().id(`actions-${key}`).gap(2).items_center().flex_none()
             .child(div().id(`act-modal-${key}`).size(22).flex().items_center().justify_center().rounded(5).cursor_pointer()
-              .hover((s) => s.bg(t.accent + "22")).tooltip("Open details modal (↗)")
+              .hover((s) => s.bg(t.accent + "22")).tooltip("Ver detalhes da tarefa (↗)")
               .on_click((_e, cx) => this.openDetailModal(x, cx))
               .child(svg("mods/todos/arrow-up-right.svg").size(12).text_color(t.accent)))
             .when(this.agentChoices.length > 0 && !x.done, (el) => el.child(
               div().id(`start-${key}`).size(22).flex().items_center().justify_center().rounded(5).cursor_pointer()
                 .when(this.startFor === key, (el) => el.bg(t.selected))
-                .hover((s) => s.bg(t.raised)).tooltip("Run agent")
+                .hover((s) => s.bg(t.raised)).tooltip("Executar agente")
                 .on_click((_e, cx) => { this.pickOpen = false; this.startFor = this.startFor === key ? null : key; cx.notify(); })
                 .child(svg("mods/todos/bot.svg").size(11).text_color(t.muted))
             ))
             .child(div().id(`del-${key}`).size(22).flex().items_center().justify_center().rounded(5).cursor_pointer()
-              .hover((s) => s.bg(t.raised)).tooltip("Delete task")
+              .hover((s) => s.bg(t.raised)).tooltip("Excluir tarefa")
               .on_click((_e, cx) => {
                 this.change(x.slug, (items) => items.filter((_, j) => j !== x.i), cx);
                 toFile(x.folder, "rm", x.text);
@@ -2600,10 +2600,10 @@ export default class Todos extends View {
             div().flex_1().min_w(0).truncate().child(this.agentName(r)),
             div().size(6).flex_none().rounded(3).bg(t[r.status] ?? t.idle),
           ]))))
-        .when(Boolean(pick), (el) => el.child(label("New conversation"))
+        .when(Boolean(pick), (el) => el.child(label("Nova conversa"))
           .child(option("new", (cx) => make(pick, cx), [
             div().size(13).flex_none().flex().items_center().justify_center().text_size(14).text_color(t.muted).child("+"),
-            div().flex_1().child("Start a new one"),
+            div().flex_1().child("Iniciar nova conversa"),
             h_flex().id("new-pick").h(20).px(6).gap(4).flex_none().items_center().rounded(5).border_1().border_color(this.pickOpen ? t.accent : t.border)
               .text_size(11).text_color(t.muted).hover((s) => s.text_color(t.foreground))
               .on_click((_e, cx) => { cx.stop_propagation(); this.pickOpen = !this.pickOpen; cx.notify(); })
@@ -2707,13 +2707,13 @@ export default class Todos extends View {
                   this.subInput.focus();
                   cx.notify();
                 })
-                .child("+ Subtask")
+                .child("+ Subtarefa")
             ))
             .child(div().flex_1())
             .child(
               div().cursor_pointer().text_size(11).text_color(t.muted).hover((st) => st.text_color(t.foreground))
                 .on_click((_e, cx) => this.openDetailModal(x, cx))
-                .child("Full details in modal ↗")
+                .child("Ver detalhes completos na modal ↗")
             )
         );
     };
@@ -2735,7 +2735,7 @@ export default class Todos extends View {
       .when(on, (el) => el.bg(t.accent + "18").border_color(t.accent + "55").text_color(t.accent))
       .when(!on, (el) => el.bg(t.raised).border_color(t.border).text_color(t.muted))
       .hover((s) => s.bg(t.hover).text_color(on ? t.accent : t.foreground).border_color(on ? t.accent : t.border))
-      .tooltip(`${tip} (${on ? "on" : "off"}: click to turn ${on ? "off" : "on"})`)
+      .tooltip(`${tip} (${on ? "ativo" : "inativo"}: clique para ${on ? "desativar" : "ativar"})`)
       .on_click((_e, cx) => { fn(cx); cx.notify(); })
       .child(svg(icon).size(12).flex_none().text_color(on ? t.accent : t.muted))
       .child(div().text_size(11.5).font_medium().child(label))
@@ -2802,23 +2802,25 @@ export default class Todos extends View {
               )
             )
             .when(Boolean(linkedCard), (b) =>
-              b.child(div().px(5).py(1).rounded(4).border_1().border_color(t.border).text_size(10).text_color(t.muted).child(`${open.length} open`))
+              b.child(div().px(5).py(1).rounded(4).border_1().border_color(t.border).text_size(10).text_color(t.muted).child(`${open.length} ${open.length === 1 ? "aberta" : "abertas"}`))
             )
         )
         .child(div().flex_1())
         .child(
           h_flex().id("btn-open-create-task").h(26).px(9).gap(5).rounded(6).cursor_pointer().items_center().justify_center()
             .bg(t.accent).hover((s) => s.opacity(0.88))
-            .tooltip("Add new task (Ctrl+N)")
+            .tooltip("Adicionar nova tarefa (Ctrl+N)")
             .on_click((_e, cx) => this.openCreateModal(cx))
             .child(svg("mods/workspace-chrome/plus.svg").size(11).text_color("#ffffff"))
-            .child(div().text_size(11.5).font_semibold().text_color("#ffffff").child("New Task"))
+            .child(div().text_size(11.5).font_semibold().text_color("#ffffff").child("Nova Tarefa"))
         )
         // Log and Sync for the project you're in (whichever tab shows).
         .when(hereOk, (el) => {
-          const l = this.lists[hereSlug] ?? { folder: this.here, opts: defOpts() }, o = l.opts, n = this.name(this.here);
-          return el.child(toggle("log", "Log", "mods/todos/log.svg", o.log, `Log (${n}): agents add what you ask for to its list${o.sync ? " and TODO.md" : ""}`, (cx) => this.setOpt(l.folder, "log", !o.log, cx)))
-            .child(toggle("link", "Sync", "mods/todos/sync.svg", o.sync, `Sync (${n}): its TODO.md follows the list`, (cx) => this.setOpt(l.folder, "sync", !o.sync, cx)));
+          const l = this.lists[hereSlug] ?? { folder: this.here, opts: defOpts() }, o = l.opts;
+          const logTip = `Log: os agentes registram automaticamente o que você pedir na lista de tarefas${o.sync ? " e no TODO.md" : ""}`;
+          const syncTip = `Sync: sincroniza as tarefas automaticamente em tempo real com o arquivo TODO.md do projeto`;
+          return el.child(toggle("log", "Log", "mods/todos/log.svg", o.log, logTip, (cx) => this.setOpt(l.folder, "log", !o.log, cx)))
+            .child(toggle("link", "Sync", "mods/todos/sync.svg", o.sync, syncTip, (cx) => this.setOpt(l.folder, "sync", !o.sync, cx)));
         }))
       .when(picks.length > 0, (el) => el.child(pickBar()))
       // Agents don't know about the lists yet: one click sets them up.
@@ -2826,8 +2828,8 @@ export default class Todos extends View {
         .bg(t.accent + "1f").hover((s) => s.bg(t.accent + "33")).text_size(12).text_color(t.foreground)
         .on_click((_e, cx) => this.setUpAgents(cx))
         .child(svg("mods/todos/bot.svg").size(13).flex_none().text_color(t.accent))
-        .child(div().flex_1().min_w(0).child("Let agents keep these lists"))
-        .child(div().flex_none().text_size(11.5).text_color(t.accent).child("Set up"))))
+        .child(div().flex_1().min_w(0).child("Permitir que agentes mantenham estas tarefas"))
+        .child(div().flex_none().text_size(11.5).text_color(t.accent).child("Configurar"))))
       .child(
         v_flex().id("todo-scroll").flex_1().min_h(0).overflow_y_scrollbar().px(8).pb(8)
           // 1. If space has NO card linked: require assigning a card!
@@ -2842,7 +2844,7 @@ export default class Todos extends View {
                 .child(div().font_bold().text_size(14).text_color(t.foreground).child("Nenhum Card / Grupo vinculado"))
                 .child(
                   div().text_size(12).text_color(t.muted).text_center().max_w(340)
-                    .child("Este Space não tem um Card ou Grupo vinculado (ex: CARD-2467, EVAH-1303). Vincule um Card para visualizar e gerenciar suas tarefas aqui.")
+                    .child("Este Space não tem um Card ou Grupo vinculado (ex: CARD-2467). Vincule um Card para visualizar e gerenciar suas tarefas aqui.")
                 )
                 .child(
                   h_flex().id("btn-prompt-assign-card").h(32).px(14).rounded(7).cursor_pointer().items_center().gap(6)
@@ -2887,8 +2889,8 @@ export default class Todos extends View {
                 )
               )
               .when(fromFile.items.length > 0, (fileEl) => fileEl
-                .child(section("file", `From ${fromFile.file}`, fromFile.items.length, !this.fileFolded, () => { this.fileFolded = !this.fileFolded; },
-                  div().id("take-all").px(5).rounded(4).cursor_pointer().hover((x) => x.bg(t.raised).text_color(t.foreground)).child("Add all")
+                .child(section("file", `Do arquivo ${fromFile.file}`, fromFile.items.length, !this.fileFolded, () => { this.fileFolded = !this.fileFolded; },
+                  div().id("take-all").px(5).rounded(4).cursor_pointer().hover((x) => x.bg(t.raised).text_color(t.foreground)).child("Adicionar todas")
                     .on_click((_e, cx) => { cx.stop_propagation(); this.take(focusFolder, fromFile.items, cx); })))
                 .children(this.fileFolded ? [] : fromFile.items.flatMap((text, i) => [h_flex().id(`file-${i}`).min_h(30).px(8).gap(8).items_center().rounded(8).hover((x) => x.bg(t.hover))
                   .on_hover((on, cx) => { const k = `file:${i}`; this.hover = on ? k : this.hover === k ? null : this.hover; cx.notify(); })
@@ -2902,11 +2904,11 @@ export default class Todos extends View {
                     .hover((x) => x.bg(t.raised)).on_click((_e, cx) => { this.pickOpen = false; this.startFor = this.startFor === `file:${i}` ? null : `file:${i}`; cx.notify(); })
                     .child(svg("mods/todos/bot.svg").size(12).text_color(t.muted))))
                   .when(this.hover === `file:${i}`, (fel) => fel.child(div().id(`skip-${i}`).size(18).flex_none().flex().items_center().justify_center().rounded(4).cursor_pointer()
-                    .hover((x) => x.bg(t.raised)).tooltip(`Delete from ${fromFile.file ?? "TODO.md"}`).on_click((_e, cx) => this.dropFromFile(focusFolder, text, cx))
+                    .hover((x) => x.bg(t.raised)).tooltip(`Remover de ${fromFile.file ?? "TODO.md"}`).on_click((_e, cx) => this.dropFromFile(focusFolder, text, cx))
                     .child(svg("mods/workspace-chrome/x.svg").size(11).text_color(t.muted)))),
                   ...(this.startFor === `file:${i}` ? [starter({ text, folder: focusFolder }, (a, cx, running) => this.startFromFile(a, focusFolder, text, cx, running))] : [])])))
               .when(done.length > 0, (doneEl) => doneEl
-                .child(section("done", "Done", done.length, !this.doneFolded, () => { this.doneFolded = !this.doneFolded; },
+                .child(section("done", "Concluídas", done.length, !this.doneFolded, () => { this.doneFolded = !this.doneFolded; },
                   div().id("done-clear").px(5).rounded(4).cursor_pointer().text_color(this.clearArmed ? t.ansi1 : t.dim).hover((s) => s.bg(t.raised).text_color(t.foreground))
                     .on_click((_e, cx) => {
                       cx.stop_propagation();
@@ -2914,11 +2916,11 @@ export default class Todos extends View {
                       else { this.clearArmed = false; for (const slug of new Set(done.map((x) => x.slug))) this.change(slug, (items) => items.filter((y) => !y.done), cx); }
                       cx.notify();
                     })
-                    .child(this.clearArmed ? `Clear ${done.length}?` : "Clear")))
+                    .child(this.clearArmed ? `Limpar ${done.length}?` : "Limpar")))
                 .children(this.doneFolded ? [] : done.slice(0, this.doneShown ?? 5).map(row))
                 .when(!this.doneFolded && done.length > 5, (doneEl2) => doneEl2.child(h_flex().mx(4).mt(2).gap(2)
-                  .when(done.length > (this.doneShown ?? 5), (moreEl) => moreEl.child(more("done-more", `Show ${Math.min(10, done.length - (this.doneShown ?? 5))} more`, () => { this.doneShown = (this.doneShown ?? 5) + 10; })))
-                  .when((this.doneShown ?? 5) > 5, (lessEl) => lessEl.child(more("done-less", "Show less", () => { this.doneShown = 5; }))))))
+                  .when(done.length > (this.doneShown ?? 5), (moreEl) => moreEl.child(more("done-more", `Mostrar mais ${Math.min(10, done.length - (this.doneShown ?? 5))}`, () => { this.doneShown = (this.doneShown ?? 5) + 10; })))
+                  .when((this.doneShown ?? 5) > 5, (lessEl) => lessEl.child(more("done-less", "Mostrar menos", () => { this.doneShown = 5; }))))))
           )
         )
       )
