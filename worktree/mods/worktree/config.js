@@ -1,7 +1,9 @@
-// Configurações do Orchestrator Worktree Mod
+// Configurações do Mod Worktrees
 export default {
   "terminal": "kitty",
   "autoDetectCurrentRepo": true,
-  "orchestratorHome": "/home/thiago/orchestrator/repos"
+  "orchestratorHome": "~/orchestrator",
+  "configured": true
 };
+
 

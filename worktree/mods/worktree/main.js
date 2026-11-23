@@ -41,6 +41,21 @@ function launchDetached(cmd, args = []) {
 }
 
 export default class OrchestratorWt extends View {
+  getSuggestions() {
+    const list = [];
+    const activePaneCwd = panes().find((p) => p.focused)?.cwd;
+    const curSpace = spaces().find((s) => s.id === props()?.space) || spaces().find((s) => s.active);
+    const activeSpaceCwd = place(curSpace, panes());
+    const curDir = activePaneCwd || activeSpaceCwd;
+    if (curDir) {
+      list.push({ path: curDir, label: "Aba atual" });
+    }
+    list.push({ path: `${this.userHome}/orchestrator`, label: "Orchestrator padrão" });
+    list.push({ path: `${this.userHome}/orchestrator/repos`, label: "Pasta repos/" });
+    list.push({ path: `${this.userHome}/.herdr/worktrees`, label: "Worktrees do Herdr" });
+    return list;
+  }
+
   resolvePaths(inputPath) {
     let raw = (inputPath || "").trim();
     if (!raw) raw = `${this.userHome}/orchestrator`;
@@ -81,7 +96,8 @@ export default class OrchestratorWt extends View {
     this.diffLoading = false;
     this.expandedRepos = new Set();
     this.editors = { zed: false, intellij: false, nvim: false };
-    this.configuring = false;
+    this.firstRun = CONFIG?.configured === false;
+    this.configuring = this.firstRun;
 
     // Detecta editores instalados no sistema
     cx.spawn(async (cx) => {
@@ -108,7 +124,7 @@ export default class OrchestratorWt extends View {
     this.createError = "";
     this.createBusy = false;
 
-    this.configPathValue = CONFIG?.orchestratorHome || `${this.userHome}/orchestrator`;
+    this.configPathValue = tilde(CONFIG?.orchestratorHome || `${this.userHome}/orchestrator`, this.userHome);
     this.configPathSaved = false;
     this.orchPathInput = InputState.new({
       value: this.configPathValue,
@@ -321,6 +337,17 @@ export default class OrchestratorWt extends View {
           if (hasFeatures) {
             this.expandedRepos.add(r.repo_id);
           }
+        }
+
+        // Se nenhum repositório foi detectado e não foi configurado ou pasta não existe, oferece configuração inicial
+        if (this.repos.length === 0) {
+          try {
+            const checkDir = await exec("test", ["-d", this.orchHome]);
+            if (checkDir.code !== 0 || CONFIG?.configured === false) {
+              this.configuring = true;
+              this.firstRun = true;
+            }
+          } catch {}
         }
 
         this.loading = false;
@@ -628,23 +655,33 @@ export default class OrchestratorWt extends View {
   saveOrchPath(cx) {
     let newPath = (this.configPathValue || this.orchPathInput.value()).trim();
     if (!newPath) return;
-    if (newPath.startsWith("~/")) {
-      newPath = `${this.userHome}/${newPath.slice(2)}`;
+    let expanded = newPath;
+    if (expanded.startsWith("~/")) {
+      expanded = `${this.userHome}/${expanded.slice(2)}`;
     }
-    this.orchHome = newPath;
+    this.orchHome = expanded;
     this.configPathSaved = true;
-    this.saveConfig({ orchestratorHome: newPath }, cx);
+    this.saveConfig({ orchestratorHome: tilde(newPath, this.userHome), configured: true }, cx);
+    this.configuring = false;
+    this.firstRun = false;
     this.loadRepos(cx);
   }
 
   saveConfig(newConfig, cx) {
     Object.assign(CONFIG, newConfig);
-    const content = `// Configurações do Orchestrator Worktree Mod
+    const content = `// Configurações do Mod Worktrees
 export default ${JSON.stringify(CONFIG, null, 2)};
 `;
     cx.spawn(async (cx) => {
       try {
-        await exec("sh", ["-c", `cat << 'EOF' > ${this.userHome}/.config/herdr-app/mods/worktree/config.js\n${content}\nEOF`]);
+        const targetPaths = [
+          `${this.userHome}/.config/herdr-app/mods/worktrees/config.js`,
+          `${this.userHome}/.config/herdr-app/mods/orchestrator-wt/config.js`,
+          `${this.userHome}/Projects/herdr-thi0x40go/worktree/mods/worktree/config.js`,
+        ];
+        for (const p of targetPaths) {
+          await exec("sh", ["-c", `test -e "$(dirname "${p}")" && cat << 'EOF' > "${p}"\n${content}\nEOF`]);
+        }
       } catch {}
       cx.notify();
     });
@@ -1255,7 +1292,7 @@ export default ${JSON.stringify(CONFIG, null, 2)};
               .font_bold()
               .text_size(15)
               .text_color(t.foreground)
-              .child("Configurações do Mod")
+              .child(this.firstRun ? "🎉 Configuração Inicial do Worktrees" : "Configurações do Mod")
           )
           .child(
             div()
@@ -1270,10 +1307,82 @@ export default ${JSON.stringify(CONFIG, null, 2)};
               .hover((s) => s.bg(t.hover))
               .on_click((_e, cx) => {
                 this.configuring = false;
+                this.firstRun = false;
                 cx.notify();
               })
-              .child("← Voltar (Esc)")
+              .child(this.firstRun ? "Pular / Fechar (Esc)" : "← Voltar (Esc)")
           )
+      )
+      // Card de boas-vindas na primeira inicialização com sugestões rápidas
+      .when(Boolean(this.firstRun), (el) =>
+        el.child(
+          v_flex()
+            .p(14)
+            .rounded(8)
+            .bg(t.surface)
+            .border(1)
+            .border_color(t.accent)
+            .gap(8)
+            .child(
+              div()
+                .font_semibold()
+                .text_size(13)
+                .text_color(t.accent)
+                .child("Nenhum repositório foi detectado no caminho padrão.")
+            )
+            .child(
+              div()
+                .text_size(12)
+                .text_color(t.foreground)
+                .child(
+                  "Escolha uma das sugestões detectadas abaixo ou informe onde ficam seus projetos git/orchestrator:"
+                )
+            )
+            .child(
+              h_flex()
+                .gap(8)
+                .pt(4)
+                .wrap()
+                .children(
+                  this.getSuggestions().map((sug) =>
+                    div()
+                      .id(`btn-sug-${slug(sug.label)}`)
+                      .cursor_pointer()
+                      .px(10)
+                      .py(6)
+                      .rounded(6)
+                      .bg(t.raised)
+                      .border(1)
+                      .border_color(t.border)
+                      .hover((s) => s.bg(t.hover).border_color(t.accent))
+                      .child(
+                        v_flex()
+                          .gap(2)
+                          .child(
+                            div()
+                              .font_medium()
+                              .text_size(11.5)
+                              .text_color(t.accent)
+                              .child(`📁 ${tilde(sug.path, this.userHome)}`)
+                          )
+                          .child(
+                            div()
+                              .text_size(10.5)
+                              .text_color(t.dim)
+                              .child(sug.label)
+                          )
+                      )
+                      .on_click((_e, cx) => {
+                        const val = tilde(sug.path, this.userHome);
+                        this.orchPathInput.set_value(val, cx);
+                        this.configPathValue = val;
+                        this.configPathSaved = false;
+                        cx.notify();
+                      })
+                  )
+                )
+            )
+        )
       )
       // 1. Pasta do Orchestrator / Repositórios
       .child(
@@ -1449,7 +1558,7 @@ export default ${JSON.stringify(CONFIG, null, 2)};
             div()
               .text_size(11)
               .text_color(t.dim)
-              .child("Arquivo de configuração: ~/.config/herdr-app/mods/worktree/config.js")
+              .child("Arquivo de configuração: ~/.config/herdr-app/mods/worktrees/config.js")
           )
           .child(
             div()
@@ -1463,7 +1572,7 @@ export default ${JSON.stringify(CONFIG, null, 2)};
               .text_color(t.accent)
               .hover((s) => s.bg(t.hover))
               .on_click(() => {
-                exec("xdg-open", [`${this.userHome}/.config/herdr-app/mods/worktree/config.js`]);
+                exec("xdg-open", [`${this.userHome}/.config/herdr-app/mods/worktrees/config.js`]);
               })
               .child("✏️ Editar arquivo completo")
           )

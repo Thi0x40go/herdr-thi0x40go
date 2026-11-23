@@ -1,6 +1,6 @@
 {
   "place": "none",
-  "title": "Orchestrator Worktrees",
+  "title": "Worktrees",
   "focusable": true,
   "overlay": {
     "kind": "popup",
