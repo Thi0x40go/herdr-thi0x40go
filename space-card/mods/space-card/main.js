@@ -299,7 +299,7 @@ with open(p, "w", encoding="utf-8") as f:
             this.existingGroups.length === 0
               ? div().text_size(11.5).text_color(t.dim).child("No cards found in to-do lists.")
               : h_flex()
-                  .wrap()
+                  .flex_wrap()
                   .gap(7)
                   .max_h(130)
                   .overflow_hidden()
