@@ -658,6 +658,30 @@ export default class Todos extends View {
     this.modalGroupInput.on("submit", (_e, cx) => this.saveModalGroup(cx));
     this.modalSubInput.on("submit", (_e, cx) => this.saveModalSub(cx));
     this.modalTagInput.on("submit", (_e, cx) => this.saveModalTag(cx));
+
+    // Modal de Criar Tarefa Completo
+    this.showCreateModal = false;
+    this.createTitleInput = InputState.new({ placeholder: "What needs to be done?" });
+    this.createProjectInput = InputState.new({ placeholder: "Project name (e.g. orchestrator, evah)..." });
+    this.createGroupInput = InputState.new({ placeholder: "CARD-XXXX / EVAH-XXXX (optional)" });
+    this.createDescTextarea = TextareaState.new({
+      value: "",
+      placeholder: "Write specifications, details, error logs, or notes in Markdown...",
+      rows: 8
+    });
+    this.createPrioSelected = null;
+    this.createInitialSubs = [];
+    this.createSubInput = InputState.new({ placeholder: "Add initial subtask..." });
+
+    this.createTitleInput.on("submit", (_e, cx) => this.submitCreateModal(cx));
+    this.createSubInput.on("submit", (_e, cx) => {
+      const val = this.createSubInput.value().trim();
+      if (val) {
+        this.createInitialSubs.push(val);
+        this.createSubInput.set_value("");
+        cx.notify();
+      }
+    });
     this.modalLinkUrlInput.on("submit", (_e, cx) => this.saveModalLink(cx));
   }
 
@@ -1530,6 +1554,323 @@ export default class Todos extends View {
     }));
   }
 
+  openCreateModal(cx) {
+    this.showCreateModal = true;
+    this.detailTask = null;
+
+    // Projeto padrão: o atual do filtro ou do space ativo
+    let currentProjectName = "orchestrator";
+    if (this.filter && this.lists[this.filter]) {
+      currentProjectName = this.name(this.lists[this.filter].folder) || this.filter;
+    } else if (this.here) {
+      currentProjectName = this.name(this.here);
+    } else {
+      const firstSlug = Object.keys(this.lists)[0];
+      if (firstSlug && this.lists[firstSlug]) {
+        currentProjectName = this.name(this.lists[firstSlug].folder) || firstSlug;
+      }
+    }
+    this.createProjectInput.set_value(currentProjectName);
+
+    // Card padrão: o card vinculado ao space ativo
+    const activeSpace = spaces().find((s) => s.active);
+    const sc = shared("spaces.cards") ?? {};
+    const detectCard = (name) => {
+      if (!name) return "";
+      const m = /\b(CARD|EVAH|TASK|PROJ|ISSUE)[-_ ]?([0-9]+)\b/i.exec(name);
+      return m ? `${m[1].toUpperCase()}-${m[2]}` : "";
+    };
+    const explicit = sc.spaces?.[activeSpace?.id];
+    const linkedCard = (explicit && explicit !== "none" ? explicit : null) || detectCard(activeSpace?.name) || (this.here ? sc.folders?.[this.here] : "") || "";
+    this.createGroupInput.set_value(linkedCard);
+
+    this.createTitleInput.set_value("");
+    this.createDescTextarea.set_value("");
+    this.createPrioSelected = null;
+    this.createInitialSubs = [];
+    this.createSubInput.set_value("");
+
+    this.createTitleInput.focus();
+    cx.timer.after(200, () => this.createTitleInput.focus());
+    cx.notify();
+  }
+
+  closeCreateModal(cx) {
+    this.showCreateModal = false;
+    cx.notify();
+  }
+
+  submitCreateModal(cx) {
+    const title = this.createTitleInput.value().trim();
+    if (!title) return;
+
+    const projectName = this.createProjectInput.value().trim();
+    let targetSlug = null;
+    let targetFolder = null;
+    if (projectName) {
+      for (const [slug, l] of Object.entries(this.lists)) {
+        if (this.name(l.folder).toLowerCase() === projectName.toLowerCase() || slug.toLowerCase() === projectName.toLowerCase()) {
+          targetSlug = slug;
+          targetFolder = l.folder;
+          break;
+        }
+      }
+    }
+    if (!targetSlug) {
+      targetSlug = this.filter || (this.here ? keyOf(this.here) : Object.keys(this.lists)[0]);
+      targetFolder = this.lists[targetSlug]?.folder || this.here || home();
+    }
+
+    const group = normalizeCard(this.createGroupInput.value().trim()) || null;
+    const priority = this.createPrioSelected || null;
+    const description = this.createDescTextarea.value().trim();
+    const subtasks = this.createInitialSubs.map((text) => ({ done: false, text, doneOn: null }));
+
+    const meta = (group || priority) ? { group, priority } : null;
+    const newItem = {
+      done: false,
+      text: title,
+      due: null,
+      doneOn: null,
+      group,
+      priority,
+      meta,
+      subtasks,
+      urls: [],
+      description,
+    };
+
+    const l = this.lists[targetSlug] ?? { folder: targetFolder, items: [] };
+    const nextItems = [...(l.items ?? []), newItem];
+    l.items = nextItems;
+    this.lists[targetSlug] = l;
+
+    this.showCreateModal = false;
+    cx.notify();
+
+    cx.spawn(async (cx) => this.write(targetSlug, targetFolder, nextItems, cx));
+    toFile(targetFolder, "add", title);
+  }
+
+  renderCreateModal(t, cx) {
+    if (!this.showCreateModal) return div();
+
+    const prios = [
+      { id: "Critical", label: "Critical", col: "#ef4444" },
+      { id: "High", label: "High", col: "#f59e0b" },
+      { id: "Medium", label: "Medium", col: "#3b82f6" },
+      { id: "Low", label: "Low", col: "#64748b" },
+      { id: null, label: "None", col: t.dim },
+    ];
+
+    const availableProjects = Object.entries(this.lists).map(([slug, l]) => ({
+      slug,
+      name: this.name(l.folder),
+      color: this.color(l.folder, t),
+    })).filter((p) => Boolean(p.name));
+
+    const all = Object.values(this.lists).flatMap((l) => l.items);
+    const existingCards = [...new Set(all.map((it) => it.group).filter(Boolean))].sort();
+
+    const currentProject = this.createProjectInput.value().trim();
+    const currentGroup = this.createGroupInput.value().trim();
+
+    return div().id("create-modal-drawer").absolute().inset_0().bg(t.background).rounded(10)
+      .border_1().border_color(t.border).shadow_lg().overflow_hidden().flex().flex_col()
+      // Header
+      .child(
+        h_flex().h(46).px(14).items_center().border_b(1).border_color(t.border).gap(10).flex_none()
+          .child(
+            h_flex().id("btn-create-back").h(28).px(10).rounded(6).cursor_pointer().items_center().gap(5)
+              .bg(t.accent + "22").border_1().border_color(t.accent + "55")
+              .hover((s) => s.bg(t.accent + "38").border_color(t.accent))
+              .tooltip("Cancel and return to list (Esc)")
+              .on_click((_e, cx) => this.closeCreateModal(cx))
+              .child(svg("mods/workspace-chrome/chevron-left.svg").size(13).text_color(t.accent))
+              .child(div().text_size(12).font_semibold().text_color(t.accent).child("Back")),
+          )
+          .child(div().w(1).h(16).bg(t.border))
+          .child(
+            h_flex().gap(6).items_center()
+              .child(svg("mods/workspace-chrome/plus.svg").size(13).text_color(t.accent))
+              .child(div().font_semibold().text_size(13).child("Create New Task")),
+          )
+          .child(div().flex_1())
+          .child(
+            div().px(6).py(2).rounded(5).text_size(11).text_color(t.dim).child("Enter to create"),
+          ),
+      )
+      // Scrollable Body
+      .child(
+        v_flex().id("create-modal-scroll").flex_1().min_h(0).overflow_y_scrollbar().p(16).gap(16)
+          // 1. Task Title
+          .child(
+            v_flex().gap(6)
+              .child(div().text_size(11.5).font_semibold().text_color(t.muted).child("Task Title *"))
+              .child(
+                Input.new(this.createTitleInput).h(36).px(10).rounded(8)
+                  .border_1().border_color(t.accent).bg(t.raised)
+                  .text_size(13).font_medium().text_color(t.foreground),
+              ),
+          )
+          // 2. Project Selector
+          .child(
+            v_flex().gap(6)
+              .child(
+                h_flex().justify_between().items_center()
+                  .child(div().text_size(11.5).font_semibold().text_color(t.muted).child("Project (Name)"))
+                  .child(div().text_size(10.5).text_color(t.dim).child("Click project chip below or type name")),
+              )
+              .child(
+                Input.new(this.createProjectInput).h(32).px(9).rounded(7)
+                  .border_1().border_color(t.border).bg(t.raised)
+                  .text_size(12.5).text_color(t.foreground),
+              )
+              .child(
+                h_flex().gap(6).flex_wrap()
+                  .children(availableProjects.map((p) => {
+                    const isPicked = currentProject.toLowerCase() === p.name.toLowerCase();
+                    return h_flex().id(`pick-proj-${p.slug}`).h(24).px(8).rounded(9999).cursor_pointer().items_center().gap(5)
+                      .border_1().border_color(isPicked ? p.color : t.border)
+                      .bg(isPicked ? p.color + "22" : t.raised + "44")
+                      .hover((s) => s.bg(t.hover))
+                      .on_click((_e, cx) => {
+                        this.createProjectInput.set_value(p.name);
+                        cx.notify();
+                      })
+                      .child(div().size(6).rounded(3).bg(p.color))
+                      .child(div().text_size(11).font_medium().text_color(isPicked ? t.foreground : t.muted).child(p.name));
+                  })),
+              ),
+          )
+          // 3. Card / Group & Priority Row
+          .child(
+            h_flex().gap(12).items_start()
+              // Group / Card
+              .child(
+                v_flex().flex_1().min_w(0).gap(6)
+                  .child(div().text_size(11.5).font_semibold().text_color(t.muted).child("Card / Group"))
+                  .child(
+                    h_flex().h(32).px(8).rounded(7).border_1().border_color(t.border).bg(t.raised).items_center().gap(5)
+                      .child(div().text_size(12).font_semibold().text_color(t.ansi6).child("#"))
+                      .child(Input.new(this.createGroupInput).flex_1().h_full().text_size(12.5).text_color(t.foreground)),
+                  )
+                  .when(existingCards.length > 0, (el) =>
+                    el.child(
+                      h_flex().gap(5).flex_wrap().max_h(56).overflow_hidden()
+                        .children(existingCards.slice(0, 8).map((c) => {
+                          const isPicked = currentGroup.toUpperCase() === c.toUpperCase();
+                          return h_flex().id(`new-card-${c}`).h(22).px(6).rounded(5).cursor_pointer().items_center()
+                            .border_1().border_color(isPicked ? t.ansi6 : t.border)
+                            .bg(isPicked ? t.ansi6 + "22" : t.raised)
+                            .hover((s) => s.bg(t.hover))
+                            .on_click((_e, cx) => {
+                              this.createGroupInput.set_value(c);
+                              cx.notify();
+                            })
+                            .child(div().text_size(10.5).font_semibold().text_color(isPicked ? t.foreground : t.ansi6).child(`#${c}`));
+                        })),
+                    ),
+                  ),
+              )
+              // Priority
+              .child(
+                v_flex().flex_none().gap(6)
+                  .child(div().text_size(11.5).font_semibold().text_color(t.muted).child("Priority"))
+                  .child(
+                    h_flex().gap(4).items_center()
+                      .children(prios.map((p) => {
+                        const isPicked = this.createPrioSelected === p.id;
+                        return h_flex().id(`create-prio-${p.label}`).h(30).px(8).rounded(6).cursor_pointer().items_center().gap(5)
+                          .border_1().border_color(isPicked ? p.col : t.border)
+                          .bg(isPicked ? p.col + "25" : t.raised)
+                          .hover((s) => s.bg(t.hover))
+                          .on_click((_e, cx) => {
+                            this.createPrioSelected = p.id;
+                            cx.notify();
+                          })
+                          .when(Boolean(p.id), (el) => el.child(div().size(6).rounded(3).bg(p.col)))
+                          .child(div().text_size(11).font_medium().text_color(isPicked ? t.foreground : t.muted).child(p.label));
+                      })),
+                  ),
+              ),
+          )
+          // 4. Description (Markdown) com a área verde escura
+          .child(
+            v_flex().gap(6)
+              .child(
+                h_flex().justify_between().items_center()
+                  .child(div().text_size(11.5).font_semibold().text_color(t.muted).child("Description / Specs (Markdown)"))
+                  .child(div().text_size(10.5).text_color(t.dim).child("Supports Markdown formatting")),
+              )
+              .child(
+                div().w_full().min_h(140).h(180).rounded(8).border_1().border_color("#ffffff44").bg("#0c2818").p(8).overflow_hidden()
+                  .child(
+                    Textarea.new(this.createDescTextarea)
+                      .w_full().h_full().text_size(12.5).text_color("#ffffff"),
+                  ),
+              ),
+          )
+          // 5. Initial Subtasks
+          .child(
+            v_flex().gap(6)
+              .child(div().text_size(11.5).font_semibold().text_color(t.muted).child("Subtasks (optional)"))
+              .child(
+                h_flex().gap(6).items_center()
+                  .child(Input.new(this.createSubInput).flex_1().h(30).px(8).rounded(6).border_1().border_color(t.border).bg(t.raised).text_size(12).text_color(t.foreground))
+                  .child(
+                    h_flex().id("btn-add-create-sub").h(30).px(10).rounded(6).bg(t.raised).border_1().border_color(t.border).cursor_pointer().items_center().justify_center()
+                      .hover((s) => s.bg(t.hover))
+                      .on_click((_e, cx) => {
+                        const val = this.createSubInput.value().trim();
+                        if (val) {
+                          this.createInitialSubs.push(val);
+                          this.createSubInput.set_value("");
+                          cx.notify();
+                        }
+                      })
+                      .child(div().text_size(11).font_medium().text_color(t.foreground).child("+ Add")),
+                  ),
+              )
+              .when(this.createInitialSubs.length > 0, (el) =>
+                el.child(
+                  v_flex().gap(4).pt(2)
+                    .children(this.createInitialSubs.map((subText, sIdx) =>
+                      h_flex().h(26).px(8).rounded(5).bg(t.raised).items_center().justify_between().gap(8)
+                        .child(div().flex_1().truncate().text_size(11.5).text_color(t.foreground).child(`• ${subText}`))
+                        .child(
+                          div().id(`rm-sub-${sIdx}`).size(18).rounded(4).cursor_pointer().flex().items_center().justify_center()
+                            .hover((s) => s.bg(t.hover))
+                            .on_click((_e, cx) => {
+                              this.createInitialSubs.splice(sIdx, 1);
+                              cx.notify();
+                            })
+                            .child(svg("mods/workspace-chrome/x.svg").size(10).text_color(t.muted)),
+                        ),
+                    )),
+                ),
+              ),
+          ),
+      )
+      // Footer
+      .child(
+        h_flex().h(52).px(16).items_center().border_t(1).border_color(t.border).justify_between().flex_none()
+          .child(
+            h_flex().id("btn-create-cancel").h(32).px(14).rounded(8).border_1().border_color(t.border).cursor_pointer().items_center().justify_center()
+              .hover((s) => s.bg(t.hover))
+              .on_click((_e, cx) => this.closeCreateModal(cx))
+              .child(div().text_size(12).font_medium().text_color(t.muted).child("Cancel")),
+          )
+          .child(
+            h_flex().id("btn-create-submit").h(32).px(16).rounded(8).bg(t.accent).cursor_pointer().items_center().justify_center().gap(6)
+              .hover((s) => s.opacity(0.88))
+              .on_click((_e, cx) => this.submitCreateModal(cx))
+              .child(svg("mods/workspace-chrome/check.svg").size(13).text_color("#ffffff"))
+              .child(div().text_size(12.5).font_semibold().text_color("#ffffff").child("Create Task")),
+          ),
+      );
+  }
+
   renderDetailModal(t, cx) {
     if (!this.detailTask) return div();
     const { slug, i } = this.detailTask;
@@ -2276,8 +2617,22 @@ export default class Todos extends View {
       .hover((s) => s.bg(t.hover).text_color(t.foreground)).on_click((_e, cx) => { fn(); cx.notify(); }).child(label);
     return div().relative().size_full().overflow_hidden()
       .on_key_down((e, cx) => {
-        if (e.key === "escape" && this.detailTask) {
-          this.closeDetailModal(cx);
+        if (e.key === "escape") {
+          if (this.showCreateModal) {
+            this.closeCreateModal(cx);
+            cx.stop_propagation();
+            return;
+          }
+          if (this.detailTask) {
+            this.closeDetailModal(cx);
+            cx.stop_propagation();
+            return;
+          }
+        }
+        if (e.key === "n" && (e.modifiers.control || e.modifiers.platform)) {
+          this.openCreateModal(cx);
+          cx.stop_propagation();
+          return;
         }
       })
       .child(
@@ -2286,6 +2641,14 @@ export default class Todos extends View {
         .child(div().font_semibold().child("To-do"))
         .child(div().px(5).py(1).rounded(4).border_1().border_color(t.border).text_size(10).text_color(t.muted).child(`${open.length} open`))
         .child(div().flex_1())
+        .child(
+          h_flex().id("btn-open-create-task").h(26).px(9).gap(5).rounded(6).cursor_pointer().items_center().justify_center()
+            .bg(t.accent).hover((s) => s.opacity(0.88))
+            .tooltip("Add new task (Ctrl+N)")
+            .on_click((_e, cx) => this.openCreateModal(cx))
+            .child(svg("mods/workspace-chrome/plus.svg").size(11).text_color("#ffffff"))
+            .child(div().text_size(11.5).font_semibold().text_color("#ffffff").child("New Task"))
+        )
         // Log and Sync for the project you're in (whichever tab shows).
         .when(hereOk, (el) => {
           const l = this.lists[hereSlug] ?? { folder: this.here, opts: defOpts() }, o = l.opts, n = this.name(this.here);
@@ -2302,101 +2665,6 @@ export default class Todos extends View {
           return chip(`grp-${grp}`, `#${grp}${isLinked ? " ★" : ""}`, count || null, isLinked ? t.accent : t.ansi6, isPicked, () => { this.groupFilter = isPicked ? null : grp; });
         }))
         .child(chip("all", "All", open.length, null, !this.filter && !this.groupFilter, () => { this.groupFilter = null; this.setMode("all"); })))
-      .child(v_flex().px(8).pt(4).pb(4)
-        .on_key_down((e, cx) => {
-          if (!this.sugs.length) return;
-          if (e.key === "down") this.sugAt = (this.sugAt + 1) % this.sugs.length;
-          else if (e.key === "up") this.sugAt = (this.sugAt + this.sugs.length - 1) % this.sugs.length;
-          else if (e.key === "tab") return this.accept(cx);
-          else if (e.key === "escape") this.sugOff = this.typed;
-          else return;
-          cx.notify();
-        })
-        .child(h_flex().gap(6).items_center()
-          .child(Input.new(this.input).flex_1().h(32).px(10).rounded(7).border_1().border_color(t.border).bg(t.raised).text_size(13).text_color(t.foreground))
-          .child(div().id("btn-add-task").h(32).px(12).rounded(9999).bg(t.accent).cursor_pointer().flex().items_center().justify_center()
-            .hover((st) => st.opacity(0.85))
-            .on_click((_e, cx) => { if (this.sugs?.length) this.accept(cx); else this.add(this.input.value(), cx); })
-            .child(div().text_size(12).font_semibold().text_color("#ffffff").child("Add Task"))))
-        .child(h_flex().min_h(24).gap(4).items_center().flex_wrap()
-          .child(h_flex().id("opt-prio").h(22).px(7).gap(4).items_center().rounded(9999).cursor_pointer()
-            .border_1().border_color(this.createPrio ? prioCol(this.createPrio) : t.border)
-            .bg(this.createPrio ? prioCol(this.createPrio) + "22" : t.raised + "44")
-            .hover((st) => st.bg(t.hover))
-            .on_click((_e, cx) => this.cyclePrio(cx))
-            .child(div().text_size(10.5).font_semibold().text_color(this.createPrio ? prioCol(this.createPrio) : t.muted)
-              .child(this.createPrio ? `${this.createPrio}` : "Priority")))
-          .child(h_flex().id("opt-group").h(22).px(7).gap(4).items_center().rounded(9999).cursor_pointer()
-            .border_1().border_color(this.createGroup ? t.ansi6 : t.border)
-            .bg(this.createGroup ? t.ansi6 + "22" : t.raised + "44")
-            .hover((st) => st.bg(t.hover))
-            .on_click((_e, cx) => {
-              if (activeGroups.length) {
-                const curIdx = activeGroups.indexOf(this.createGroup);
-                this.createGroup = activeGroups[(curIdx + 1) % (activeGroups.length + 1)] || "";
-              } else {
-                this.showDrawer = !this.showDrawer;
-              }
-              cx.notify();
-            })
-            .child(div().text_size(10.5).text_color(this.createGroup ? t.ansi6 : t.muted)
-              .child(this.createGroup ? `#${this.createGroup}` : "#Card")))
-          .child(h_flex().id("opt-details").h(22).px(7).gap(4).items_center().rounded(9999).cursor_pointer()
-            .border_1().border_color(this.showDrawer ? t.accent : t.border)
-            .bg(this.showDrawer ? t.accent + "22" : t.raised + "44")
-            .hover((st) => st.bg(t.hover))
-            .on_click((_e, cx) => { this.showDrawer = !this.showDrawer; cx.notify(); })
-            .child(div().text_size(10.5).text_color(this.showDrawer ? t.accent : t.muted)
-              .child(this.showDrawer ? "− Hide Details" : "+ Add Details (URLs, Subtasks, Desc)")))
-          .when(this.pendingUrls.length > 0, (b) => b.child(div().text_size(10.5).text_color(t.ansi4).child(`(${this.pendingUrls.length} urls)`)))
-          .when(this.pendingSubs.length > 0, (b) => b.child(div().text_size(10.5).text_color(t.ansi2).child(`(${this.pendingSubs.length} subtasks)`))))
-        .when(this.showDrawer, (el) => el.child(
-          v_flex().mt(4).p(8).gap(6).rounded(8).border_1().border_color(t.border).bg(t.raised + "44")
-            .child(h_flex().gap(6).items_center()
-              .child(div().w(60).text_size(11).text_color(t.dim).child("Card:"))
-              .child(Input.new(this.groupInput).flex_1().h(24).px(7).rounded(5).border_1().border_color(t.border).bg(t.background).text_size(11.5).text_color(t.foreground)))
-            .child(h_flex().gap(6).items_center()
-              .child(div().w(60).text_size(11).text_color(t.dim).child("Desc:"))
-              .child(Input.new(this.descInput).flex_1().h(24).px(7).rounded(5).border_1().border_color(t.border).bg(t.background).text_size(11.5).text_color(t.foreground)))
-            .child(h_flex().gap(6).items_center()
-              .child(div().w(60).text_size(11).text_color(t.dim).child("URL:"))
-              .child(Input.new(this.urlNameInput).w(90).h(24).px(6).rounded(5).border_1().border_color(t.border).bg(t.background).text_size(11.5).text_color(t.foreground))
-              .child(Input.new(this.urlLinkInput).flex_1().h(24).px(6).rounded(5).border_1().border_color(t.border).bg(t.background).text_size(11.5).text_color(t.foreground))
-              .child(div().id("btn-add-url").h(24).px(8).rounded(5).bg(t.raised).border_1().border_color(t.border).cursor_pointer()
-                .hover((st) => st.bg(t.hover).border_color(t.accent)).flex().items_center().justify_center()
-                .on_click((_e, cx) => this.addPendingUrl(cx))
-                .child(div().text_size(11).text_color(t.accent).child("+ Link"))))
-            .when(this.pendingUrls.length > 0, (b) => b.child(
-              h_flex().gap(4).flex_wrap().ml(66).children(this.pendingUrls.map((u, ui) =>
-                h_flex().px(6).py(1).rounded(4).bg(t.raised).border_1().border_color(t.border).gap(4).items_center()
-                  .child(svg("mods/todos/link.svg").size(9).text_color(t.ansi4))
-                  .child(div().text_size(10.5).text_color(t.foreground).child(u.name))
-                  .child(div().size(12).cursor_pointer().flex().items_center().justify_center().hover((st) => st.text_color(t.ansi1))
-                    .on_click((_e, cx) => this.removePendingUrl(ui, cx))
-                    .child(svg("mods/workspace-chrome/x.svg").size(8).text_color(t.muted)))))))
-            .child(h_flex().gap(6).items_center()
-              .child(div().w(60).text_size(11).text_color(t.dim).child("Subtask:"))
-              .child(Input.new(this.subDraftInput).flex_1().h(24).px(6).rounded(5).border_1().border_color(t.border).bg(t.background).text_size(11.5).text_color(t.foreground))
-              .child(div().id("btn-add-sub").h(24).px(8).rounded(5).bg(t.raised).border_1().border_color(t.border).cursor_pointer()
-                .hover((st) => st.bg(t.hover).border_color(t.accent)).flex().items_center().justify_center()
-                .on_click((_e, cx) => this.addPendingSub(cx))
-                .child(div().text_size(11).text_color(t.ansi2).child("+ Step"))))
-            .when(this.pendingSubs.length > 0, (b) => b.child(
-              h_flex().gap(4).flex_wrap().ml(66).children(this.pendingSubs.map((st, si) =>
-                h_flex().px(6).py(1).rounded(4).bg(t.raised).border_1().border_color(t.border).gap(4).items_center()
-                  .child(div().size(6).rounded(3).bg(t.ansi2))
-                  .child(div().text_size(10.5).text_color(t.foreground).child(st))
-                  .child(div().size(12).cursor_pointer().flex().items_center().justify_center().hover((s) => s.text_color(t.ansi1))
-                    .on_click((_e, cx) => this.removePendingSub(si, cx))
-                    .child(svg("mods/workspace-chrome/x.svg").size(8).text_color(t.muted)))))))
-        ))
-        .when(this.sugs.length > 0, (el) => el.child(v_flex().mt(3).p(3).rounded(7).border_1().border_color(t.border).bg(t.popover)
-          .children(this.sugs.map((g, i) => h_flex().id(`sug-${i}`).h(26).px(7).gap(7).items_center().rounded(5).cursor_pointer().text_size(12.5)
-            .when(i === this.sugAt, (el) => el.bg(t.selected)).hover((x) => x.bg(t.hover))
-            .on_click((_e, cx) => { this.sugAt = i; this.accept(cx); this.input.focus(); })
-            .when(Boolean(g.color), (el) => el.child(div().size(6).flex_none().rounded(3).bg(g.color)))
-            .child(div().flex_1().truncate().text_color(t.foreground).child(g.label))
-            .when(Boolean(g.hint), (el) => el.child(div().flex_none().text_size(11).text_color(t.dim).child(g.hint))))))))
       .when(picks.length > 0, (el) => el.child(pickBar()))
       // Agents don't know about the lists yet: one click sets them up.
       .when(!this.ruleOk, (el) => el.child(h_flex().id("todo-setup").mx(8).mb(4).px(10).py(6).gap(8).items_center().rounded(8).cursor_pointer()
@@ -2445,6 +2713,7 @@ export default class Todos extends View {
             .when(done.length > (this.doneShown ?? 5), (el) => el.child(more("done-more", `Show ${Math.min(10, done.length - (this.doneShown ?? 5))} more`, () => { this.doneShown = (this.doneShown ?? 5) + 10; })))
             .when((this.doneShown ?? 5) > 5, (el) => el.child(more("done-less", "Show less", () => { this.doneShown = 5; })))))))
       )
-      .when(Boolean(this.detailTask && this.lists[this.detailTask.slug]?.items?.[this.detailTask.i]), (el) => el.child(this.renderDetailModal(t, cx)));
+      .when(Boolean(this.showCreateModal), (el) => el.child(this.renderCreateModal(t, cx)))
+      .when(Boolean(!this.showCreateModal && this.detailTask && this.lists[this.detailTask.slug]?.items?.[this.detailTask.i]), (el) => el.child(this.renderDetailModal(t, cx)));
   }
 }
