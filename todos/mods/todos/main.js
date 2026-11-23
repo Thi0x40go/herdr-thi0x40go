@@ -1544,7 +1544,7 @@ export default class Todos extends View {
                   .child(div().text_size(11.5).font_medium().text_color(t.muted).child("Back"))
               )
               .child(div().w(1).h(16).bg(t.border))
-              .child(div().font_semibold().text_size(12.5).child("Task Details"))
+              .child(div().font_semibold().text_size(12.5).child(`Task #${i + 1}`))
               .when(Boolean(folder), (el) => el.child(
                 div().px(6).py(1).rounded(9999).bg(this.color(folder, t) + "22").text_size(10).font_medium()
                   .text_color(this.color(folder, t)).child(this.name(folder))
@@ -1589,6 +1589,10 @@ export default class Todos extends View {
                     div().id("modal-main-tick").size(20).mt(4).rounded(6).border(2).cursor_pointer().border_color(task.done ? t.ansi2 : t.muted)
                       .when(task.done, (b) => b.bg(t.ansi2).flex().items_center().justify_center().child(svg("mods/workspace-chrome/check.svg").size(12).text_color(t.background)))
                       .on_click((_e, cx) => this.toggleModalTaskDone(cx))
+                  )
+                  .child(
+                    div().px(5).py(1).rounded(4).bg(t.raised).border_1().border_color(t.border).flex_none()
+                      .child(div().text_size(11).font_family("JetBrains Mono").font_bold().text_color(t.accent).child(`#${i + 1}`))
                   )
                   .child(
                     v_flex().flex_1().min_w(0).gap(4)
@@ -1775,6 +1779,7 @@ export default class Todos extends View {
                               .when(s.done, (bx) => bx.bg(t.ansi2).flex().items_center().justify_center().child(svg("mods/workspace-chrome/check.svg").size(8).text_color(t.background)))
                               .on_click((_e, cx) => this.toggleModalSub(si, cx))
                           )
+                          .child(div().flex_none().text_size(10).font_family("JetBrains Mono").text_color(t.dim).child(`#${i + 1}.${si + 1}`))
                           .child(div().flex_1().min_w(0).truncate().text_size(12).text_color(s.done ? t.dim : t.foreground).when(s.done, (bx) => bx.line_through()).child(s.text))
                           .child(
                             div().size(16).rounded(4).cursor_pointer().flex().items_center().justify_center().hover((st) => st.bg(t.raised))
@@ -1968,6 +1973,12 @@ export default class Todos extends View {
             cross(x.folder, x.done ? "undo" : "done", x.text);
             this.fileAt[x.folder] = 0;
           }))
+        // Número da tarefa (#1, #2, #15...)
+        .child(
+          div().id(`num-${key}`).flex_none().text_size(10.5).font_family("JetBrains Mono").font_semibold()
+            .text_color(x.done ? t.dim : t.muted)
+            .child(`#${x.i + 1}`)
+        )
         // Prioridade do pai
         .when(Boolean(x.priority) && !editing, (el) => el.child(
           div().px(6).py(1).rounded(9999).border_1().border_color(prioColor + "44").bg(prioColor + "14")
@@ -2142,7 +2153,9 @@ export default class Todos extends View {
           h_flex().id(`sub-${key}-${si}`).min_h(24).px(6).py(2).gap(8).items_center().rounded(5).hover((st) => st.bg(t.hover))
             .child(div().id(`subtick-${key}-${si}`).size(13).flex_none().rounded(4).border_1().cursor_pointer().border_color(s.done ? t.ansi2 : t.muted)
               .when(s.done, (b) => b.bg(t.ansi2).flex().items_center().justify_center().child(svg("mods/workspace-chrome/check.svg").size(8).text_color(t.background)))
-              .on_click((_e, cx) => {
+              // Número da subtask (#15.1, #15.2...)
+            .child(div().flex_none().text_size(9.5).font_family("JetBrains Mono").text_color(t.dim).child(`#${x.i + 1}.${si + 1}`))
+            .on_click((_e, cx) => {
                 this.change(x.slug, (items) => items.map((it, j) => {
                   if (j === x.i) {
                     const nextSubs = it.subtasks.map((sub, sj) => (sj === si ? { ...sub, done: !sub.done, doneOn: sub.done ? null : stamp() } : sub));
