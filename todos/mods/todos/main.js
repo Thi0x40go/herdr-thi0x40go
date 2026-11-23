@@ -636,7 +636,7 @@ export default class Todos extends View {
     this.taskDescInput = InputState.new({ placeholder: "Description markdown..." });
 
     // Modal de Detalhes Completo
-    this.detailTask = null; // { slug, i }
+    this.detailTask = { slug: "home-thiago-orchestrator", i: 15 }; // { slug, i }
     this.modalTitleInput = InputState.new({ placeholder: "Task title..." });
     this.modalDescInput = InputState.new({ placeholder: "Markdown description / specs..." });
     this.modalEditingDesc = false;
@@ -1226,7 +1226,7 @@ export default class Todos extends View {
   }
 
   closeDetailModal(cx) {
-    this.detailTask = null;
+    this.detailTask = { slug: "home-thiago-orchestrator", i: 15 };
     this.modalDeleteArmed = false;
     cx.notify();
   }
@@ -1398,31 +1398,90 @@ export default class Todos extends View {
 
 
   renderMarkdownBlock(markdownText, t) {
-    const lines = (markdownText || "").split("\n");
-    return v_flex().gap(4).children(lines.map((l) => {
+    if (!markdownText) return div();
+    const lines = markdownText.split("\n");
+
+    const renderTextPieces = (str, isHeader = false) => {
+      const tokens = str.split(/(`[^`]+`|\*\*[^*]+\*\*)/g).filter(Boolean);
+      if (tokens.length === 1 && !tokens[0].startsWith("`") && !tokens[0].startsWith("**")) {
+        return div().w_full().text_size(12).line_height("18px").text_color(isHeader ? t.accent : t.foreground)
+          .whitespace_normal().child(str);
+      }
+      return h_flex().w_full().flex_wrap().gap_x(2).gap_y(1).items_baseline()
+        .children(tokens.map((tok) => {
+          if (tok.startsWith("`") && tok.endsWith("`") && tok.length >= 2) {
+            return div().font_family("JetBrains Mono").text_size(11).px(4).py(0.5).rounded(4)
+              .bg(t.raised).border_1().border_color(t.border).text_color(t.accent).whitespace_normal().child(tok.slice(1, -1));
+          }
+          if (tok.startsWith("**") && tok.endsWith("**") && tok.length >= 4) {
+            return div().font_bold().text_size(12).text_color(t.accent).whitespace_normal().child(tok.slice(2, -2));
+          }
+          return div().text_size(12).line_height("18px").text_color(isHeader ? t.accent : t.foreground).whitespace_normal().child(tok);
+        }));
+    };
+
+    return v_flex().w_full().gap(6).children(lines.map((l) => {
       const trimmed = l.trim();
       if (!trimmed) return div().h(4);
-      if (trimmed.startsWith("### ")) {
-        return div().font_semibold().text_size(12).text_color(t.accent).child(trimmed.slice(4));
+
+      if (trimmed.startsWith("# ")) {
+        return div().w_full().mt(6).mb(2).font_bold().text_size(13.5).text_color(t.foreground).whitespace_normal().child(trimmed.slice(2));
       }
       if (trimmed.startsWith("## ")) {
-        return div().font_semibold().text_size(12.5).text_color(t.foreground).child(trimmed.slice(3));
+        return div().w_full().mt(4).mb(2).font_bold().text_size(12.5).text_color(t.foreground).whitespace_normal().child(trimmed.slice(3));
       }
-      if (trimmed.startsWith("# ")) {
-        return div().font_bold().text_size(13).text_color(t.foreground).child(trimmed.slice(2));
+      if (trimmed.startsWith("### ")) {
+        return div().w_full().mt(3).mb(1).font_semibold().text_size(12).text_color(t.accent).whitespace_normal().child(trimmed.slice(4));
       }
+
+      // Key-Value Label: **Label:** rest
+      const labelMatch = /^\*\*([^*]+)\*\*:?\s*(.*)$/.exec(trimmed);
+      if (labelMatch) {
+        const label = labelMatch[1].trim();
+        const rest = labelMatch[2].trim();
+        if (!rest) {
+          return div().w_full().mt(4).mb(1).font_bold().text_size(12).text_color(t.accent).whitespace_normal().child(label);
+        }
+        return h_flex().w_full().gap(6).items_start()
+          .child(div().font_bold().text_size(12).text_color(t.accent).flex_none().child(label.endsWith(":") ? label : label + ":"))
+          .child(
+            div().flex_1().min_w(0).child(renderTextPieces(rest))
+          );
+      }
+
+      // Bullet list item (- ... or * ...)
       if (trimmed.startsWith("- ") || trimmed.startsWith("* ")) {
-        return h_flex().gap(6).items_start().pl(4)
-          .child(div().size(4).mt(6).rounded(9999).bg(t.muted).flex_none())
-          .child(div().flex_1().text_size(12).line_height("18px").text_color(t.foreground).child(trimmed.slice(2)));
+        return h_flex().w_full().gap(6).items_start().pl(2)
+          .child(div().size(5).mt(6).rounded(9999).bg(t.accent).flex_none())
+          .child(
+            div().flex_1().min_w(0).child(renderTextPieces(trimmed.slice(2)))
+          );
       }
+
+      // Numbered list item (1. ...)
       const numMatch = /^(\d+)\.\s+(.*)$/.exec(trimmed);
       if (numMatch) {
-        return h_flex().gap(6).items_start().pl(4)
-          .child(div().text_size(11).font_mono().text_color(t.muted).flex_none().child(numMatch[1] + "."))
-          .child(div().flex_1().text_size(12).line_height("18px").text_color(t.foreground).child(numMatch[2]));
+        return h_flex().w_full().gap(6).items_start().pl(2)
+          .child(div().text_size(11).font_family("JetBrains Mono").font_bold().text_color(t.muted).flex_none().child(numMatch[1] + "."))
+          .child(
+            div().flex_1().min_w(0).child(renderTextPieces(numMatch[2]))
+          );
       }
-      return div().text_size(12).line_height("18px").text_color(t.foreground).child(l);
+
+      // Markdown table row (| ... |)
+      if (trimmed.startsWith("|") && trimmed.endsWith("|")) {
+        const cells = trimmed.split("|").slice(1, -1).map((c) => c.trim());
+        if (cells.every((c) => /^[-:]+$/.test(c))) {
+          return div().w_full().h(1).bg(t.border).my(2);
+        }
+        return h_flex().w_full().gap(4).px(4).py(1).rounded(3).bg(t.raised + "22").border_1().border_color(t.border + "44")
+          .children(cells.map((cell) =>
+            div().flex_1().min_w(0).text_size(10.5).font_family("JetBrains Mono").truncate().text_color(t.foreground).child(cell)
+          ));
+      }
+
+      // Regular text paragraph
+      return div().w_full().child(renderTextPieces(l));
     }));
   }
 
@@ -1534,14 +1593,14 @@ export default class Todos extends View {
               )
               // Description section (Markdown View + Textarea Edit)
               .child(
-                v_flex().gap(6)
+                v_flex().w_full().gap(6)
                   .child(
-                    h_flex().items_center().justify_between()
+                    h_flex().w_full().items_center().justify_between()
                       .child(div().text_size(11).font_semibold().text_color(t.muted).child("DESCRIPTION & SPECS"))
                       .when(Boolean(task.description) && !this.modalEditingDesc, (b) => b.child(
                         div().cursor_pointer().flex().items_center().gap(3).hover((s) => s.opacity(0.8))
                           .on_click((_e, cx) => {
-                            this.modalEditingDesc = false;
+                            this.modalEditingDesc = true;
                             this.modalDescTextarea.set_value(task.description || "");
                             cx.notify();
                           })
@@ -1551,15 +1610,15 @@ export default class Todos extends View {
                   )
                   // Editing mode: Textarea with scroll and actions
                   .when(this.modalEditingDesc, (b) => b.child(
-                    v_flex().gap(6).p(4).rounded(8).border_1().border_color(t.accent).bg(t.background)
+                    v_flex().w_full().gap(6).p(6).rounded(8).border_1().border_color(t.accent).bg(t.background)
                       .child(
-                        Textarea.new(this.modalDescTextarea).h(130).px(8).py(6).rounded(6)
+                        Textarea.new(this.modalDescTextarea).w_full().h(140).px(8).py(6).rounded(6)
                           .border_1().border_color(t.border).bg(t.raised + "44")
                           .text_size(12).text_color(t.foreground)
                       )
                       .child(
-                        h_flex().items_center().justify_between().px(4)
-                          .child(div().text_size(10.5).text_color(t.dim).child("Markdown supported (#, -, 1., etc.)"))
+                        h_flex().w_full().items_center().justify_between().px(2)
+                          .child(div().text_size(10.5).text_color(t.dim).child("Markdown (#, -, 1., **bold**, `code`)"))
                           .child(
                             h_flex().gap(6).items_center()
                               .child(
@@ -1577,22 +1636,22 @@ export default class Todos extends View {
                           )
                       )
                   ))
-                  // Reading mode: Formatted Markdown or placeholder to add
+                  // Reading mode: Formatted Markdown with scroll and border
                   .when(!this.modalEditingDesc, (b) => b.child(
                     Boolean(task.description)
-                      ? div().max_h(180).overflow_y_scrollbar().p(10).rounded(8).border_1().border_color(t.border)
-                          .bg(t.raised + "2a").border_l(3).border_color(t.accent).cursor_pointer()
-                          .tooltip("Click to edit description")
+                      ? div().id("desc-markdown-box").w_full().min_h(70).max_h(240).overflow_y_scrollbar().overflow_x_hidden()
+                          .p(10).rounded(8).border_1().border_color(t.border).bg(t.raised + "22").border_l(3).border_color(t.accent)
+                          .cursor_pointer().tooltip("Click to edit description")
                           .on_click((_e, cx) => {
-                            this.modalEditingDesc = false;
+                            this.modalEditingDesc = true;
                             this.modalDescTextarea.set_value(task.description || "");
                             cx.notify();
                           })
                           .child(this.renderMarkdownBlock(task.description, t))
-                      : div().h(36).px(10).rounded(6).border_1().border_dashed().border_color(t.border).cursor_pointer()
+                      : div().w_full().h(36).px(10).rounded(6).border_1().border_dashed().border_color(t.border).cursor_pointer()
                           .flex().items_center().gap(6).hover((s) => s.border_color(t.accent).bg(t.raised + "44"))
                           .on_click((_e, cx) => {
-                            this.modalEditingDesc = false;
+                            this.modalEditingDesc = true;
                             this.modalDescTextarea.set_value("");
                             cx.notify();
                           })
@@ -1830,6 +1889,14 @@ export default class Todos extends View {
           div().px(6).py(1).rounded(9999).bg(t.ansi6 + "18").border_1().border_color(t.ansi6 + "44")
             .text_size(10).font_semibold().text_color(t.ansi6).child(`#${x.group}`)
         ))
+        // Desc pill indicator (badge discreto indicando specs/detalhes)
+        .when(Boolean(x.description) && !editing, (el) => el.child(
+          div().px(5).py(1).rounded(4).bg(t.accent + "18").border_1().border_color(t.accent + "33")
+            .text_size(9.5).font_medium().text_color(t.accent).cursor_pointer()
+            .tooltip("Has specs / description (click to view)")
+            .on_click((e, cx) => { cx.stop_propagation(); this.openDetailModal(x, cx); })
+            .child("desc")
+        ))
         // Accordion chevron badge de subtasks
         .when(hasSubtasks && !editing, (el) => el.child(
           h_flex().id(`exp-${key}`).h(20).px(5).gap(3).items_center().rounded(5).bg(t.raised).cursor_pointer()
@@ -1865,9 +1932,9 @@ export default class Todos extends View {
         .when(hovered && !editing, (el) => el.child(
           h_flex().id(`actions-${key}`).gap(2).items_center().flex_none()
             .child(div().id(`act-modal-${key}`).size(22).flex().items_center().justify_center().rounded(5).cursor_pointer()
-              .hover((s) => s.bg(t.raised)).tooltip("View details / edit")
+              .hover((s) => s.bg(t.accent + "22")).tooltip("Open details modal (↗)")
               .on_click((_e, cx) => this.openDetailModal(x, cx))
-              .child(svg("mods/todos/edit.svg").size(11).text_color(t.muted)))
+              .child(svg("mods/todos/arrow-up-right.svg").size(12).text_color(t.accent)))
             .when(this.agentChoices.length > 0 && !x.done, (el) => el.child(
               div().id(`start-${key}`).size(22).flex().items_center().justify_center().rounded(5).cursor_pointer()
                 .when(this.startFor === key, (el) => el.bg(t.selected))
