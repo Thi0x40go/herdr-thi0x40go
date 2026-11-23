@@ -8,8 +8,12 @@ const TODOS_DIR = () => `${home()}/.local/share/herdr/todos`;
 
 function normalizeCard(str) {
   if (!str) return "";
-  const c = str.trim().replace(/^#/, "").trim();
-  return /^(card|task|proj|issue)-/i.test(c) ? c.toUpperCase() : c;
+  let c = str.trim().replace(/^#/, "").trim();
+  const m = /^([a-zA-Z]{2,8})[-_ ]?([0-9]{2,6})$/i.exec(c);
+  if (m) {
+    return `${m[1].toUpperCase()}-${m[2]}`;
+  }
+  return c.toUpperCase();
 }
 
 export default class SpaceCardDialog extends View {
@@ -25,8 +29,14 @@ export default class SpaceCardDialog extends View {
     }
 
     const sc = shared("spaces.cards") ?? {};
-    this.currentCard = p.card || sc.spaces?.[this.spaceId] || (this.folder ? sc.folders?.[this.folder] : "") || "";
-    this.input = InputState.new({ value: this.currentCard, placeholder: "e.g. CARD-2467, TASK-101..." });
+    const detectCard = (name) => {
+      if (!name) return "";
+      const m = /\b(CARD|EVAH|TASK|PROJ|ISSUE)[-_ ]?([0-9]+)\b/i.exec(name);
+      return m ? `${m[1].toUpperCase()}-${m[2]}` : "";
+    };
+    const explicit = sc.spaces?.[this.spaceId];
+    this.currentCard = p.card || (explicit && explicit !== "none" ? explicit : null) || detectCard(this.space?.name) || (this.folder ? sc.folders?.[this.folder] : "") || "";
+    this.input = InputState.new({ value: this.currentCard, placeholder: "e.g. EVAH-1303, CARD-2467..." });
     this.input.on("submit", () => this.save(cx));
     this.input.on("change", () => cx.notify());
     this.inputFocused = true;
@@ -42,7 +52,7 @@ export default class SpaceCardDialog extends View {
   loadExistingCards(cx) {
     cx.spawn(async (cx) => {
       try {
-        const r = await exec("sh", ["-c", `grep -hoE '<!-- meta: .* -->|\\b(CARD-[0-9]+|TASK-[0-9]+)\\b' "${TODOS_DIR()}"/*.md 2>/dev/null`]);
+        const r = await exec("sh", ["-c", `grep -hoE '<!-- meta: .* -->|\\b(CARD|EVAH|TASK|PROJ|ISSUE)[-_ ]?[0-9]+\\b' "${TODOS_DIR()}"/*.md 2>/dev/null`]);
         const counts = {};
         if (r.code === 0 && r.stdout) {
           const lines = r.stdout.split("\n");
@@ -52,12 +62,12 @@ export default class SpaceCardDialog extends View {
             if (metaM) {
               try {
                 const parsed = JSON.parse(metaM[1]);
-                if (parsed.group) grp = parsed.group;
+                if (parsed.group) grp = normalizeCard(parsed.group);
               } catch {}
             }
             if (!grp) {
-              const cardM = /\b(CARD-[0-9]+|TASK-[0-9]+)\b/i.exec(l);
-              if (cardM) grp = cardM[1].toUpperCase();
+              const cardM = /\b(CARD|EVAH|TASK|PROJ|ISSUE)[-_ ]?([0-9]+)\b/i.exec(l);
+              if (cardM) grp = `${cardM[1].toUpperCase()}-${cardM[2]}`;
             }
             if (grp) {
               grp = grp.toUpperCase();
@@ -130,7 +140,7 @@ with open(p, "w", encoding="utf-8") as f:
   unlink(cx) {
     cx.spawn(async (cx) => {
       const data = await this.readCardsData();
-      if (this.spaceId && data.spaces) delete data.spaces[this.spaceId];
+      if (this.spaceId && data.spaces) data.spaces[this.spaceId] = "none";
       if (this.folder && data.folders) delete data.folders[this.folder];
       await this.writeCardsData(data);
       closeOverlay(props()?.overlay);

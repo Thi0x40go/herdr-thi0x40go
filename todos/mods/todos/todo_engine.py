@@ -26,7 +26,7 @@ RE_DONE = re.compile(r"<!--\s*done:\s*([^>]+?)\s*-->")
 RE_DESC_START = re.compile(r"^(\s*)<!--\s*desc:\s*$")
 RE_DESC_END = re.compile(r"^(\s*)-->$")
 RE_TAG = re.compile(r"(?:^|\s)#([a-zA-Z0-9_-]+)")
-RE_CARD = re.compile(r"\b(CARD-[0-9]+|TASK-[0-9]+)\b", re.IGNORECASE)
+RE_CARD = re.compile(r"\b(CARD|EVAH|TASK|PROJ|ISSUE)[-_ ]?([0-9]+)\b", re.IGNORECASE)
 RE_PRIO = re.compile(r"(?:^|\s)!(critical|high|medium|med|low|urgent|crit|p0|p1|p2|p3)\b", re.IGNORECASE)
 RE_ASSIGNEE = re.compile(r"(?:^|\s)@([a-zA-Z0-9_-]+)\b")
 
@@ -144,10 +144,10 @@ class Task:
                 domain = re.sub(r'^https?://(?:www\.)?', '', lurl).split('/')[0]
                 self.urls.append({"name": domain or "link", "url": lurl})
 
-        # Extract [CARD-XXXX] or [TASK-XXXX]
+        # Extract [CARD-XXXX] or [TASK-XXXX] or EVAH-XXXX
         m_card = RE_CARD.search(text)
         if m_card and not self.group:
-            self.group = m_card.group(1).upper()
+            self.group = f"{m_card.group(1).upper()}-{m_card.group(2)}"
 
         # Extract !p0, !p1, etc.
         m_prio = RE_PRIO.search(text)
@@ -688,7 +688,10 @@ def normalize_card(card):
     if not card:
         return ""
     c = str(card).strip().lstrip("#").strip()
-    return c.upper() if c.lower().startswith(("card-", "task-", "proj-", "issue-")) else c
+    m = re.match(r"^([a-zA-Z]{2,8})[-_ ]?([0-9]{2,6})$", c, re.IGNORECASE)
+    if m:
+        return f"{m.group(1).upper()}-{m.group(2)}"
+    return c.upper()
 
 def cmd_space(args):
     folder = args.project or os.getcwd()

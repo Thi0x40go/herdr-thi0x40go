@@ -173,8 +173,8 @@ function parseLine(text) {
   const clean = text.replace(/\s*<!--[^>]*-->/g, "").trim();
   let group = meta?.group ?? null;
   if (!group) {
-    const cardM = /\b(CARD-[0-9]+|TASK-[0-9]+)\b/i.exec(clean);
-    if (cardM) group = cardM[1].toUpperCase();
+    const cardM = /\b(CARD|EVAH|TASK|PROJ|ISSUE)[-_ ]?([0-9]+)\b/i.exec(clean);
+    if (cardM) group = `${cardM[1].toUpperCase()}-${cardM[2]}`;
   }
   let priority = meta?.priority ?? null;
   if (priority) {
@@ -1155,12 +1155,18 @@ export default class Todos extends View {
     if (!group) {
       const activeSpace = spaces().find((s) => s.active);
       const sc = shared("spaces.cards") ?? {};
-      const linkedCard = sc.spaces?.[activeSpace?.id] || (folder ? sc.folders?.[folder] : null) || null;
+      const detectCard = (name) => {
+        if (!name) return null;
+        const m = /\b(CARD|EVAH|TASK|PROJ|ISSUE)[-_ ]?([0-9]+)\b/i.exec(name);
+        return m ? `${m[1].toUpperCase()}-${m[2]}` : null;
+      };
+      const explicit = sc.spaces?.[activeSpace?.id];
+      const linkedCard = (explicit && explicit !== "none" ? explicit : null) || detectCard(activeSpace?.name) || (folder ? sc.folders?.[folder] : null) || null;
       if (linkedCard) group = linkedCard;
     }
-    const cardM = /(?:^|\s)(?:#|\[)(CARD-[0-9]+|TASK-[0-9]+)(?:\])?/i.exec(text);
+    const cardM = /(?:^|\s)(?:#|\[)?(CARD|EVAH|TASK|PROJ|ISSUE)[-_ ]?([0-9]+)(?:\])?/i.exec(text);
     if (cardM) {
-      group = cardM[1].toUpperCase();
+      group = `${cardM[1].toUpperCase()}-${cardM[2]}`;
     }
 
     const { text: rest, due } = takeDue(text);
@@ -1941,7 +1947,13 @@ export default class Todos extends View {
     const hereOpen = hereOk ? (this.lists[hereSlug]?.items ?? []).filter((x) => !x.done).length : 0;
     const activeSpace = spaces().find((s) => s.active);
     const sc = shared("spaces.cards") ?? {};
-    const linkedCard = sc.spaces?.[activeSpace?.id] || (this.here ? sc.folders?.[this.here] : null) || null;
+    const detectCard = (name) => {
+      if (!name) return null;
+      const m = /\b(CARD|EVAH|TASK|PROJ|ISSUE)[-_ ]?([0-9]+)\b/i.exec(name);
+      return m ? `${m[1].toUpperCase()}-${m[2]}` : null;
+    };
+    const explicit = sc.spaces?.[activeSpace?.id];
+    const linkedCard = (explicit && explicit !== "none" ? explicit : null) || detectCard(activeSpace?.name) || (this.here ? sc.folders?.[this.here] : null) || null;
     const baseGroups = [...new Set((this.filter ? (this.lists[this.filter]?.items ?? []) : all).map((it) => it.group).filter(Boolean))];
     if (linkedCard && !baseGroups.includes(linkedCard)) baseGroups.push(linkedCard);
     const activeGroups = baseGroups.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
