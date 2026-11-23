@@ -39,7 +39,7 @@
 import { View, div, svg, image } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input, TextareaState, Textarea } from "gpui-base";
 import { agentTask } from "./agent-name.js";
-import { theme, exec, home, appHome, spaces, focused, shared, readTextFile, writeTextFile, watchFolder, knownAgents, run, notify, panes, hc, agents, setShared } from "herdr";
+import { theme, exec, home, appHome, spaces, focused, shared, readTextFile, writeTextFile, watchFolder, knownAgents, run, notify, panes, hc, agents, setShared, openOverlay } from "herdr";
 
 // Python 3 runs as "python3", else "python" (as on Windows): found once.
 let PY = null;
@@ -2408,8 +2408,6 @@ export default class Todos extends View {
     const inScope = (l) => !Array.isArray(pinList) || pinned.has(l.folder) || (hereOk && l.folder === this.here);
     this.filter = this.mode === "here" && hereOk ? hereSlug : null;
     const all = Object.entries(this.lists).filter(([, l]) => inScope(l)).flatMap(([slug, l]) => l.items.map((x, i) => ({ ...x, slug, i, folder: l.folder })));
-    const open = all.filter((x) => !x.done), doneToday = all.filter((x) => x.done).sort((a, b) => (b.doneOn ?? "").localeCompare(a.doneOn ?? ""));
-    const hereOpen = hereOk ? (this.lists[hereSlug]?.items ?? []).filter((x) => !x.done).length : 0;
     const activeSpace = spaces().find((s) => s.active);
     const sc = shared("spaces.cards") ?? {};
     const detectCard = (name) => {
@@ -2420,20 +2418,13 @@ export default class Todos extends View {
     const explicit = sc.spaces?.[activeSpace?.id];
     const linkedCard = (explicit && explicit !== "none" ? explicit : null) || detectCard(activeSpace?.name) || (this.here ? sc.folders?.[this.here] : null) || null;
 
-    // When space changes, automatically select the linked card (the one with the star)
-    const activeSpaceId = activeSpace?.id ?? null;
-    if (this.currentSpaceId !== activeSpaceId) {
-      this.currentSpaceId = activeSpaceId;
-      this.groupFilter = linkedCard || null;
-    }
-
-    const baseGroups = [...new Set((this.filter ? (this.lists[this.filter]?.items ?? []) : all).map((it) => it.group).filter(Boolean))];
-    if (linkedCard && !baseGroups.includes(linkedCard)) baseGroups.push(linkedCard);
-    const activeGroups = baseGroups.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
-    const shown = (list) => list.filter((x) => !this.filter || x.slug === this.filter).filter((x) => !this.groupFilter || x.group === this.groupFilter);
+    // Strict Space Card scope: display tasks belonging to the active Space's assigned Card
+    const cardItems = linkedCard ? all.filter((x) => x.group && x.group.toUpperCase() === linkedCard.toUpperCase()) : [];
+    const open = cardItems.filter((x) => !x.done);
+    const doneToday = cardItems.filter((x) => x.done).sort((a, b) => (b.doneOn ?? "").localeCompare(a.doneOn ?? ""));
     const dueKey = (x) => (x.due ? x.due.padEnd(16, " ") : "~");
-    const list = shown(open).sort((a, b) => (b.slug === hereSlug) - (a.slug === hereSlug) || dueKey(a).localeCompare(dueKey(b)) || a.slug.localeCompare(b.slug) || a.i - b.i);
-    const done = shown(doneToday);
+    const list = open.sort((a, b) => (b.slug === hereSlug) - (a.slug === hereSlug) || dueKey(a).localeCompare(dueKey(b)) || a.slug.localeCompare(b.slug) || a.i - b.i);
+    const done = doneToday;
     this.visible = [...list, ...done.slice(0, this.doneShown ?? 5)];
     const picks = this.picked();
     if (picks.length !== this.sel.size) { this.sel = new Map(picks.map((x) => [`${x.slug}:${x.i}`, x.text])); if (!picks.length) this.unpick(); }
@@ -2774,8 +2765,46 @@ export default class Todos extends View {
       .child(
         v_flex().size_full().min_h(0).rounded(10).overflow_hidden().bg(t.background).border_1().border_color(t.border).text_color(t.foreground).text_size(13)
       .child(h_flex().h(42).flex_none().px(14).gap(8).items_center().border_b(1).border_color(t.border)
-        .child(div().font_semibold().child("To-do"))
-        .child(div().px(5).py(1).rounded(4).border_1().border_color(t.border).text_size(10).text_color(t.muted).child(`${open.length} open`))
+        .child(
+          h_flex().items_center().gap(8)
+            .child(div().font_semibold().text_size(13).child("To-do"))
+            .when(Boolean(linkedCard), (b) =>
+              b.child(
+                h_flex().id("btn-space-card-badge").h(24).px(8).rounded(6).cursor_pointer().items_center().gap(5)
+                  .bg(t.accent + "1f").border_1().border_color(t.accent + "55")
+                  .hover((s) => s.bg(t.accent + "33").border_color(t.accent))
+                  .tooltip("Card atribuído a este Space (clique para alterar)")
+                  .on_click((_e, _cx) => {
+                    const s = spaces().find((x) => x.active);
+                    if (s) {
+                      openOverlay({ mod: "space-card", kind: "dialog", width: 460, height: 420, props: { space: s.id, folder: s.folder } });
+                    }
+                  })
+                  .child(svg("mods/todos/star.svg").size(11).text_color(t.accent))
+                  .child(div().text_size(11.5).font_bold().text_color(t.accent).child(`#${linkedCard}`))
+                  .child(svg("mods/todos/tag.svg").size(10).text_color(t.accent + "aa"))
+              )
+            )
+            .when(!linkedCard, (b) =>
+              b.child(
+                h_flex().id("btn-space-card-empty-badge").h(24).px(8).rounded(6).cursor_pointer().items_center().gap(5)
+                  .bg(t.ansi3 + "1f").border_1().border_color(t.ansi3 + "55")
+                  .hover((s) => s.bg(t.ansi3 + "33"))
+                  .tooltip("Clique para vincular um Card a este Space")
+                  .on_click((_e, _cx) => {
+                    const s = spaces().find((x) => x.active);
+                    if (s) {
+                      openOverlay({ mod: "space-card", kind: "dialog", width: 460, height: 420, props: { space: s.id, folder: s.folder } });
+                    }
+                  })
+                  .child(svg("mods/todos/tag.svg").size(11).text_color(t.ansi3))
+                  .child(div().text_size(11.5).font_semibold().text_color(t.ansi3).child("Sem Card"))
+              )
+            )
+            .when(Boolean(linkedCard), (b) =>
+              b.child(div().px(5).py(1).rounded(4).border_1().border_color(t.border).text_size(10).text_color(t.muted).child(`${open.length} open`))
+            )
+        )
         .child(div().flex_1())
         .child(
           h_flex().id("btn-open-create-task").h(26).px(9).gap(5).rounded(6).cursor_pointer().items_center().justify_center()
@@ -2791,16 +2820,6 @@ export default class Todos extends View {
           return el.child(toggle("log", "Log", "mods/todos/log.svg", o.log, `Log (${n}): agents add what you ask for to its list${o.sync ? " and TODO.md" : ""}`, (cx) => this.setOpt(l.folder, "log", !o.log, cx)))
             .child(toggle("link", "Sync", "mods/todos/sync.svg", o.sync, `Sync (${n}): its TODO.md follows the list`, (cx) => this.setOpt(l.folder, "sync", !o.sync, cx)));
         }))
-      .child(h_flex().flex_wrap().min_h(30).gap(2).px(8).pt(5).items_center().text_size(11.5)
-        // The project you're in first, then active groups sorted, and All last.
-        .when(hereOk, (el) => el.child(chip("here", this.name(this.here), hereOpen || null, this.color(this.here, t), Boolean(this.filter && !this.groupFilter), () => { this.groupFilter = null; this.setMode("here"); })))
-        .children(activeGroups.map((grp) => {
-          const count = open.filter((it) => it.group === grp).length;
-          const isPicked = this.groupFilter === grp;
-          const isLinked = linkedCard === grp;
-          return chip(`grp-${grp}`, `#${grp}`, count || null, isLinked ? t.accent : t.ansi6, isPicked, () => { this.groupFilter = isPicked ? null : grp; }, null, isLinked);
-        }))
-        .child(chip("all", "All", open.length, null, !this.filter && !this.groupFilter, () => { this.groupFilter = null; this.setMode("all"); })))
       .when(picks.length > 0, (el) => el.child(pickBar()))
       // Agents don't know about the lists yet: one click sets them up.
       .when(!this.ruleOk, (el) => el.child(h_flex().id("todo-setup").mx(8).mb(4).px(10).py(6).gap(8).items_center().rounded(8).cursor_pointer()
@@ -2809,45 +2828,99 @@ export default class Todos extends View {
         .child(svg("mods/todos/bot.svg").size(13).flex_none().text_color(t.accent))
         .child(div().flex_1().min_w(0).child("Let agents keep these lists"))
         .child(div().flex_none().text_size(11.5).text_color(t.accent).child("Set up"))))
-      .child(v_flex().id("todo-scroll").flex_1().min_h(0).overflow_y_scrollbar().px(8).pb(8)
-        .children(list.flatMap(withStarter))
-        .when(!list.length, (el) => el.child(div().px(8).py(6).text_size(12).text_color(t.dim)
-          .child(this.filter ? "Nothing left here" : `Nothing to do. New ones go to ${this.here ? this.name(this.here) : "this project"}.`)))
-        .when(fromFile.items.length > 0, (el) => el
-          .child(section("file", `From ${fromFile.file}`, fromFile.items.length, !this.fileFolded, () => { this.fileFolded = !this.fileFolded; },
-            div().id("take-all").px(5).rounded(4).cursor_pointer().hover((x) => x.bg(t.raised).text_color(t.foreground)).child("Add all")
-              .on_click((_e, cx) => { cx.stop_propagation(); this.take(focusFolder, fromFile.items, cx); })))
-          .children(this.fileFolded ? [] : fromFile.items.flatMap((text, i) => [h_flex().id(`file-${i}`).min_h(30).px(8).gap(8).items_center().rounded(8).hover((x) => x.bg(t.hover))
-            .on_hover((on, cx) => { const k = `file:${i}`; this.hover = on ? k : this.hover === k ? null : this.hover; cx.notify(); })
-            .child(div().id(`take-${i}`).size(14).flex_none().rounded(7).border_1().border_color(t.input).cursor_pointer()
-              .flex().items_center().justify_center().hover((x) => x.border_color(this.color(focusFolder, t)))
-              .child(svg("mods/workspace-chrome/plus.svg").size(9).text_color(t.muted))
-              .on_click((_e, cx) => this.take(focusFolder, [text], cx)))
-            .child(div().flex_1().min_w(0).text_size(13).line_height("18px").text_color(t.muted).when(this.hover !== `file:${i}`, (el) => el.truncate()).when(this.hover === `file:${i}`, (el) => el.whitespace_normal().py(5)).child(text))
-            .when((this.hover === `file:${i}` || this.startFor === `file:${i}`) && this.agentChoices.length > 0, (el) => el.child(div().id(`fstart-${i}`).size(18).flex_none().flex().items_center().justify_center().rounded(4).cursor_pointer()
-              .when(this.startFor === `file:${i}`, (el) => el.bg(t.selected))
-              .hover((x) => x.bg(t.raised)).on_click((_e, cx) => { this.pickOpen = false; this.startFor = this.startFor === `file:${i}` ? null : `file:${i}`; cx.notify(); })
-              .child(svg("mods/todos/bot.svg").size(12).text_color(t.muted))))
-            .when(this.hover === `file:${i}`, (el) => el.child(div().id(`skip-${i}`).size(18).flex_none().flex().items_center().justify_center().rounded(4).cursor_pointer()
-              .hover((x) => x.bg(t.raised)).tooltip(`Delete from ${fromFile.file ?? "TODO.md"}`).on_click((_e, cx) => this.dropFromFile(focusFolder, text, cx))
-              .child(svg("mods/workspace-chrome/x.svg").size(11).text_color(t.muted)))),
-            ...(this.startFor === `file:${i}` ? [starter({ text, folder: focusFolder }, (a, cx, running) => this.startFromFile(a, focusFolder, text, cx, running))] : [])])))
-        // Done: the latest few (Show more for 10 more), and Clear (twice) to
-        // delete the ticked ones of the projects shown, as `todo clear`.
-        .when(done.length > 0, (el) => el
-          .child(section("done", "Done", done.length, !this.doneFolded, () => { this.doneFolded = !this.doneFolded; },
-            div().id("done-clear").px(5).rounded(4).cursor_pointer().text_color(this.clearArmed ? t.ansi1 : t.dim).hover((s) => s.bg(t.raised).text_color(t.foreground))
-              .on_click((_e, cx) => {
-                cx.stop_propagation();
-                if (!this.clearArmed) { this.clearArmed = true; cx.spawn(async (cx) => { await cx.sleep(3000); this.clearArmed = false; cx.notify(); }); }
-                else { this.clearArmed = false; for (const slug of new Set(done.map((x) => x.slug))) this.change(slug, (items) => items.filter((y) => !y.done), cx); }
-                cx.notify();
-              })
-              .child(this.clearArmed ? `Clear ${done.length}?` : "Clear")))
-          .children(this.doneFolded ? [] : done.slice(0, this.doneShown ?? 5).map(row))
-          .when(!this.doneFolded && done.length > 5, (el) => el.child(h_flex().mx(4).mt(2).gap(2)
-            .when(done.length > (this.doneShown ?? 5), (el) => el.child(more("done-more", `Show ${Math.min(10, done.length - (this.doneShown ?? 5))} more`, () => { this.doneShown = (this.doneShown ?? 5) + 10; })))
-            .when((this.doneShown ?? 5) > 5, (el) => el.child(more("done-less", "Show less", () => { this.doneShown = 5; })))))))
+      .child(
+        v_flex().id("todo-scroll").flex_1().min_h(0).overflow_y_scrollbar().px(8).pb(8)
+          // 1. If space has NO card linked: require assigning a card!
+          .when(!linkedCard, (el) =>
+            el.child(
+              v_flex().id("todo-unassigned-card-prompt").size_full().items_center().justify_center().py(48).px(20).gap(12)
+                .child(
+                  div().size(44).rounded(22).bg(t.ansi3 + "1f").border_1().border_color(t.ansi3 + "55")
+                    .flex().items_center().justify_center()
+                    .child(svg("mods/todos/tag.svg").size(20).text_color(t.ansi3))
+                )
+                .child(div().font_bold().text_size(14).text_color(t.foreground).child("Nenhum Card / Grupo vinculado"))
+                .child(
+                  div().text_size(12).text_color(t.muted).text_center().max_w(340)
+                    .child("Este Space não tem um Card ou Grupo vinculado (ex: CARD-2467, EVAH-1303). Vincule um Card para visualizar e gerenciar suas tarefas aqui.")
+                )
+                .child(
+                  h_flex().id("btn-prompt-assign-card").h(32).px(14).rounded(7).cursor_pointer().items_center().gap(6)
+                    .bg(t.accent).hover((s) => s.opacity(0.88))
+                    .on_click((_e, _cx) => {
+                      const s = spaces().find((x) => x.active);
+                      if (s) {
+                        openOverlay({ mod: "space-card", kind: "dialog", width: 460, height: 420, props: { space: s.id, folder: s.folder } });
+                      }
+                    })
+                    .child(svg("mods/todos/star.svg").size(12).text_color("#ffffff"))
+                    .child(div().text_size(12).font_semibold().text_color("#ffffff").child("Vincular Card a este Space"))
+                )
+            )
+          )
+          // 2. If space HAS a card linked:
+          .when(Boolean(linkedCard), (el) =>
+            el.children(list.flatMap(withStarter))
+              .when(!list.length && !done.length, (emptyEl) =>
+                emptyEl.child(
+                  v_flex().size_full().items_center().justify_center().py(36).px(16).gap(10)
+                    .child(
+                      div().size(40).rounded(20).bg(t.raised).border_1().border_color(t.border)
+                        .flex().items_center().justify_center()
+                        .child(svg("mods/todos/star.svg").size(18).text_color(t.accent))
+                    )
+                    .child(div().font_semibold().text_size(13).text_color(t.foreground).child(`Nenhuma tarefa para #${linkedCard}`))
+                    .child(div().text_size(11.5).text_color(t.dim).child("Crie a primeira tarefa deste Card"))
+                    .child(
+                      h_flex().h(28).px(12).rounded(6).cursor_pointer().items_center().gap(5)
+                        .bg(t.accent + "22").border_1().border_color(t.accent + "55")
+                        .hover((s) => s.bg(t.accent + "33"))
+                        .on_click((_e, cx) => this.openCreateModal(cx))
+                        .child(svg("mods/workspace-chrome/plus.svg").size(11).text_color(t.accent))
+                        .child(div().text_size(11.5).font_semibold().text_color(t.accent).child(`+ Nova Tarefa em #${linkedCard}`))
+                    )
+                )
+              )
+              .when(!list.length && done.length > 0, (emptyEl) =>
+                emptyEl.child(
+                  div().px(8).py(10).text_size(12).text_color(t.dim).child(`Todas as tarefas de #${linkedCard} foram concluídas!`)
+                )
+              )
+              .when(fromFile.items.length > 0, (fileEl) => fileEl
+                .child(section("file", `From ${fromFile.file}`, fromFile.items.length, !this.fileFolded, () => { this.fileFolded = !this.fileFolded; },
+                  div().id("take-all").px(5).rounded(4).cursor_pointer().hover((x) => x.bg(t.raised).text_color(t.foreground)).child("Add all")
+                    .on_click((_e, cx) => { cx.stop_propagation(); this.take(focusFolder, fromFile.items, cx); })))
+                .children(this.fileFolded ? [] : fromFile.items.flatMap((text, i) => [h_flex().id(`file-${i}`).min_h(30).px(8).gap(8).items_center().rounded(8).hover((x) => x.bg(t.hover))
+                  .on_hover((on, cx) => { const k = `file:${i}`; this.hover = on ? k : this.hover === k ? null : this.hover; cx.notify(); })
+                  .child(div().id(`take-${i}`).size(14).flex_none().rounded(7).border_1().border_color(t.input).cursor_pointer()
+                    .flex().items_center().justify_center().hover((x) => x.border_color(this.color(focusFolder, t)))
+                    .child(svg("mods/workspace-chrome/plus.svg").size(9).text_color(t.muted))
+                    .on_click((_e, cx) => this.take(focusFolder, [text], cx)))
+                  .child(div().flex_1().min_w(0).text_size(13).line_height("18px").text_color(t.muted).when(this.hover !== `file:${i}`, (fel) => fel.truncate()).when(this.hover === `file:${i}`, (fel) => fel.whitespace_normal().py(5)).child(text))
+                  .when((this.hover === `file:${i}` || this.startFor === `file:${i}`) && this.agentChoices.length > 0, (fel) => fel.child(div().id(`fstart-${i}`).size(18).flex_none().flex().items_center().justify_center().rounded(4).cursor_pointer()
+                    .when(this.startFor === `file:${i}`, (fel2) => fel2.bg(t.selected))
+                    .hover((x) => x.bg(t.raised)).on_click((_e, cx) => { this.pickOpen = false; this.startFor = this.startFor === `file:${i}` ? null : `file:${i}`; cx.notify(); })
+                    .child(svg("mods/todos/bot.svg").size(12).text_color(t.muted))))
+                  .when(this.hover === `file:${i}`, (fel) => fel.child(div().id(`skip-${i}`).size(18).flex_none().flex().items_center().justify_center().rounded(4).cursor_pointer()
+                    .hover((x) => x.bg(t.raised)).tooltip(`Delete from ${fromFile.file ?? "TODO.md"}`).on_click((_e, cx) => this.dropFromFile(focusFolder, text, cx))
+                    .child(svg("mods/workspace-chrome/x.svg").size(11).text_color(t.muted)))),
+                  ...(this.startFor === `file:${i}` ? [starter({ text, folder: focusFolder }, (a, cx, running) => this.startFromFile(a, focusFolder, text, cx, running))] : [])])))
+              .when(done.length > 0, (doneEl) => doneEl
+                .child(section("done", "Done", done.length, !this.doneFolded, () => { this.doneFolded = !this.doneFolded; },
+                  div().id("done-clear").px(5).rounded(4).cursor_pointer().text_color(this.clearArmed ? t.ansi1 : t.dim).hover((s) => s.bg(t.raised).text_color(t.foreground))
+                    .on_click((_e, cx) => {
+                      cx.stop_propagation();
+                      if (!this.clearArmed) { this.clearArmed = true; cx.spawn(async (cx) => { await cx.sleep(3000); this.clearArmed = false; cx.notify(); }); }
+                      else { this.clearArmed = false; for (const slug of new Set(done.map((x) => x.slug))) this.change(slug, (items) => items.filter((y) => !y.done), cx); }
+                      cx.notify();
+                    })
+                    .child(this.clearArmed ? `Clear ${done.length}?` : "Clear")))
+                .children(this.doneFolded ? [] : done.slice(0, this.doneShown ?? 5).map(row))
+                .when(!this.doneFolded && done.length > 5, (doneEl2) => doneEl2.child(h_flex().mx(4).mt(2).gap(2)
+                  .when(done.length > (this.doneShown ?? 5), (moreEl) => moreEl.child(more("done-more", `Show ${Math.min(10, done.length - (this.doneShown ?? 5))} more`, () => { this.doneShown = (this.doneShown ?? 5) + 10; })))
+                  .when((this.doneShown ?? 5) > 5, (lessEl) => lessEl.child(more("done-less", "Show less", () => { this.doneShown = 5; }))))))
+          )
+        )
       )
       .when(Boolean(this.showCreateModal), (el) => el.child(this.renderCreateModal(t, cx)))
       .when(Boolean(!this.showCreateModal && this.detailTask && this.lists[this.detailTask.slug]?.items?.[this.detailTask.i]), (el) => el.child(this.renderDetailModal(t, cx)));
