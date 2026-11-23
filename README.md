@@ -35,11 +35,22 @@ Terminal hibernation and auto-revive system for coding agents on Herdr restart o
 
 ### ✅ [todos](todos/)
 Project task management panel and CLI integration for Herdr and AI agents.
-- **CLI Command:** `todo` (`todo add`, `todo done`, `todo rm`, `todo log on/off`)
+- **CLI Command:** `todo` (`todo add`, `todo done`, `todo rm`, `todo log on/off`, `todo space`)
 - **Key Features:**
   - Automatic per-project to-do list tracking based on the current Git repository.
   - User and AI agent synchronization with live UI updates in Herdr.
+  - Space/Worktree card linking via `todo space [get|link <CARD>|unlink|list]`.
   - Request logging for coding assistants.
+
+### 🏷️ [space-card](space-card/)
+Modal dialog and context menu extension to link Herdr spaces and worktrees directly to issue cards (e.g. `CARD-2467`).
+- **Trigger:** Right-click on any space in the sidebar › `Link Card / Group...` or `Card: #CARD-XXXX`
+- **Key Features:**
+  - Fast overlay dialog with searchable existing project cards and quick single-click selection.
+  - Clean input for manual/new card entry (supports `CARD-XXXX`, `TASK-XXXX`, etc.).
+  - Visual status badge (`#CARD-XXXX`) displayed next to the space name in the sidebar.
+  - Bidirectional sync with `todo space` CLI and `~/.local/share/herdr/spaces-cards.json`.
+  - Automatic filtering and default card group assignment when adding tasks in that space.
 
 ### 🌐 [terminal-browser](terminal-browser/)
 Interactive terminal-based browser integration for Herdr, running side-by-side with your active agents.
@@ -67,6 +78,7 @@ Interactive terminal-based browser integration for Herdr, running side-by-side w
    ln -snf ~/Projects/herdr-thi0x40go/worktree/mods/worktree ~/.config/herdr-app/mods/worktree
    ln -snf ~/Projects/herdr-thi0x40go/hibernate/mods/hibernate ~/.config/herdr-app/mods/hibernate
    ln -snf ~/Projects/herdr-thi0x40go/todos/mods/todos ~/.config/herdr-app/mods/todos
+   ln -snf ~/Projects/herdr-thi0x40go/space-card/mods/space-card ~/.config/herdr-app/mods/space-card
    ln -snf ~/Projects/herdr-thi0x40go/terminal-browser/mods/terminal-browser ~/.config/herdr-app/mods/terminal-browser
    ```
 

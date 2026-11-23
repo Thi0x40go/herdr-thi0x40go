@@ -1152,6 +1152,12 @@ export default class Todos extends View {
     }
 
     let group = (this.groupInput.value().trim() || this.createGroup?.trim() || null);
+    if (!group) {
+      const activeSpace = spaces().find((s) => s.active);
+      const sc = shared("spaces.cards") ?? {};
+      const linkedCard = sc.spaces?.[activeSpace?.id] || (folder ? sc.folders?.[folder] : null) || null;
+      if (linkedCard) group = linkedCard;
+    }
     const cardM = /(?:^|\s)(?:#|\[)(CARD-[0-9]+|TASK-[0-9]+)(?:\])?/i.exec(text);
     if (cardM) {
       group = cardM[1].toUpperCase();
@@ -1933,7 +1939,12 @@ export default class Todos extends View {
     const all = Object.entries(this.lists).filter(([, l]) => inScope(l)).flatMap(([slug, l]) => l.items.map((x, i) => ({ ...x, slug, i, folder: l.folder })));
     const open = all.filter((x) => !x.done), doneToday = all.filter((x) => x.done).sort((a, b) => (b.doneOn ?? "").localeCompare(a.doneOn ?? ""));
     const hereOpen = hereOk ? (this.lists[hereSlug]?.items ?? []).filter((x) => !x.done).length : 0;
-    const activeGroups = [...new Set((this.filter ? (this.lists[this.filter]?.items ?? []) : all).map((it) => it.group).filter(Boolean))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+    const activeSpace = spaces().find((s) => s.active);
+    const sc = shared("spaces.cards") ?? {};
+    const linkedCard = sc.spaces?.[activeSpace?.id] || (this.here ? sc.folders?.[this.here] : null) || null;
+    const baseGroups = [...new Set((this.filter ? (this.lists[this.filter]?.items ?? []) : all).map((it) => it.group).filter(Boolean))];
+    if (linkedCard && !baseGroups.includes(linkedCard)) baseGroups.push(linkedCard);
+    const activeGroups = baseGroups.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
     const shown = (list) => list.filter((x) => !this.filter || x.slug === this.filter).filter((x) => !this.groupFilter || x.group === this.groupFilter);
     const dueKey = (x) => (x.due ? x.due.padEnd(16, " ") : "~");
     const list = shown(open).sort((a, b) => (b.slug === hereSlug) - (a.slug === hereSlug) || dueKey(a).localeCompare(dueKey(b)) || a.slug.localeCompare(b.slug) || a.i - b.i);
@@ -2275,7 +2286,8 @@ export default class Todos extends View {
         .children(activeGroups.map((grp) => {
           const count = open.filter((it) => it.group === grp).length;
           const isPicked = this.groupFilter === grp;
-          return chip(`grp-${grp}`, `#${grp}`, count || null, t.ansi6, isPicked, () => { this.groupFilter = isPicked ? null : grp; });
+          const isLinked = linkedCard === grp;
+          return chip(`grp-${grp}`, `#${grp}${isLinked ? " ★" : ""}`, count || null, isLinked ? t.accent : t.ansi6, isPicked, () => { this.groupFilter = isPicked ? null : grp; });
         }))
         .child(chip("all", "All", open.length, null, !this.filter && !this.groupFilter, () => { this.groupFilter = null; this.setMode("all"); })))
       .child(v_flex().px(8).pt(4).pb(4)

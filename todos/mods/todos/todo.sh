@@ -12,6 +12,7 @@
 #   todo rm <n|p.s>          delete item n or subtask p.s
 #   todo clear               delete the ticked ones
 #   todo json                export project to-dos as JSON
+#   todo space [get|link|unlink|list] manage space/worktree link to Card/Group
 #   todo log [on|off]        this project: agents add what you ask for (default: Options › To-do)
 #   todo sync [on|off]       this project: its TODO.md follows add/edit/rm (default: Options › To-do)
 #   todo --rule on|off       add or remove the agents' to-do rule
@@ -66,6 +67,7 @@ too. Use the `todo` command (it picks the project from the git repo you run it i
 - `todo desc <n> <text>`: updates the markdown description of task <n>
 - `todo rm <n|p.s>`: deletes a task or subtask
 - `todo json`: exports tasks and metadata as structured JSON
+- `todo space [get|link <CARD>|unlink|list]`: views or links current space/worktree to Card/Group
 - `todo all`: shows every project's list
 
 While request logging is on (`todo log` says on):
@@ -74,6 +76,7 @@ While request logging is on (`todo log` says on):
 3. Link relevant URLs (e.g. `--url <ticket-or-MR-link>`) so they appear directly in Herdr.
 4. For complex tasks, break them down into subtasks (`todo sub <n> <step>`).
 5. Tick off items/subtasks (`todo done <n|p.s>`) immediately once completed and validated.
+6. When starting work or creating a worktree for a demand, check/link its Card with `todo space` or `todo space link <CARD-ID>`.
 <!-- /herdr:todo -->
 EOF
     } >> "$f"
@@ -180,6 +183,14 @@ case "$cmd" in
       exec "$PY" "$ENGINE" -p "$folder" json "$@"
     else
       echo "todo json requires Python 3" >&2
+      exit 1
+    fi
+    ;;
+  space)
+    if [ -n "$PY" ] && [ -f "$ENGINE" ]; then
+      exec "$PY" "$ENGINE" -p "$folder" space "$@"
+    else
+      echo "todo space requires Python 3" >&2
       exit 1
     fi
     ;;

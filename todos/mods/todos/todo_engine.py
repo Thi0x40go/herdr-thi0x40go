@@ -659,6 +659,104 @@ def cmd_json(args):
     }
     print(json.dumps(res, indent=2, ensure_ascii=False))
 
+def get_spaces_cards_file():
+    data_home = os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share")
+    return Path(data_home) / "herdr" / "spaces-cards.json"
+
+def load_spaces_cards():
+    p = get_spaces_cards_file()
+    if not p.is_file():
+        return {"spaces": {}, "folders": {}}
+    try:
+        with open(p, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            if not isinstance(data, dict):
+                return {"spaces": {}, "folders": {}}
+            data.setdefault("spaces", {})
+            data.setdefault("folders", {})
+            return data
+    except Exception:
+        return {"spaces": {}, "folders": {}}
+
+def save_spaces_cards(data):
+    p = get_spaces_cards_file()
+    p.parent.mkdir(parents=True, exist_ok=True)
+    with open(p, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+
+def normalize_card(card):
+    if not card:
+        return ""
+    c = str(card).strip().lstrip("#").strip()
+    return c.upper() if c.lower().startswith(("card-", "task-", "proj-", "issue-")) else c
+
+def cmd_space(args):
+    folder = args.project or os.getcwd()
+    folder = os.path.realpath(folder)
+    sub = (args.action or "get").strip()
+    card_arg = args.card
+
+    if sub not in ("get", "link", "unlink", "list", "all", "json") and not card_arg:
+        card_arg = sub
+        sub = "link"
+
+    data = load_spaces_cards()
+
+    if sub in ("list", "all"):
+        folders = data.get("folders", {})
+        spaces = data.get("spaces", {})
+        if not folders and not spaces:
+            print("No linked cards found.")
+            return
+        if folders:
+            print(f"{CLR_BOLD}Linked Folders/Worktrees:{CLR_RESET}")
+            for f, c in sorted(folders.items()):
+                print(f"  {CLR_CYAN}#{c}{CLR_RESET} -> {f}")
+        if spaces:
+            print(f"{CLR_BOLD}Linked Spaces:{CLR_RESET}")
+            for s, c in sorted(spaces.items()):
+                print(f"  {CLR_CYAN}#{c}{CLR_RESET} -> Space {s}")
+        return
+
+    if sub == "json":
+        print(json.dumps(data, indent=2, ensure_ascii=False))
+        return
+
+    if sub == "unlink":
+        removed = False
+        if folder in data.get("folders", {}):
+            del data["folders"][folder]
+            removed = True
+        save_spaces_cards(data)
+        if removed:
+            print(f"{CLR_GREEN}Unlinked card from {folder}{CLR_RESET}")
+        else:
+            print(f"No card was linked to {folder}")
+        return
+
+    if sub == "link":
+        if not card_arg:
+            print("Usage: todo space link <CARD-ID> (e.g. todo space link CARD-2467)", file=sys.stderr)
+            sys.exit(1)
+        card = normalize_card(card_arg)
+        data.setdefault("folders", {})[folder] = card
+        save_spaces_cards(data)
+        print(f"{CLR_GREEN}Linked {folder} -> {CLR_CYAN}#{card}{CLR_RESET}")
+        return
+
+    # sub == "get"
+    card = data.get("folders", {}).get(folder)
+    if not card:
+        for f, c in data.get("folders", {}).items():
+            if folder == f or folder.startswith(f + "/"):
+                card = c
+                break
+    if card:
+        print(f"{CLR_BOLD}Space Card:{CLR_RESET} {CLR_CYAN}#{card}{CLR_RESET} ({folder})")
+    else:
+        print(f"No card linked to {folder}")
+        print(f"To link: {CLR_DIM}todo space link <CARD-ID>{CLR_RESET}")
+
 def main():
     import argparse
     parser = argparse.ArgumentParser(description="Herdr To-do Engine")
@@ -722,6 +820,11 @@ def main():
     # json
     subparsers.add_parser("json")
 
+    # space
+    p_space = subparsers.add_parser("space")
+    p_space.add_argument("action", nargs="?", default="get", help="Action (get, link, unlink, list, all, json) or Card ID")
+    p_space.add_argument("card", nargs="?", help="Card ID when action is link")
+
     args = parser.parse_args()
     if not args.cmd or args.cmd == "list":
         if not hasattr(args, "group"):
@@ -751,6 +854,8 @@ def main():
         cmd_desc(args)
     elif args.cmd == "json":
         cmd_json(args)
+    elif args.cmd == "space":
+        cmd_space(args)
 
 if __name__ == "__main__":
     main()
