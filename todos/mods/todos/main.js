@@ -606,7 +606,8 @@ export default class Todos extends View {
         await this.load(cx);
       }
     });
-    cx.timer.every(1000, (cx) => this.findHere(cx));
+    this.currentSpaceId = null;
+    cx.timer.every(250, (cx) => this.findHere(cx));
     // A list on another computer can't be watched: read again every 5s.
     cx.timer.every(5000, (cx) => { if (HERE.machine) cx.spawn(async (cx) => this.loadThere(cx)); });
     cx.timer.every(15000, (cx) => { this.checkRule(cx); cx.notify(); }); // "today", overdue, TODO.md re-read, the rule
@@ -933,6 +934,23 @@ export default class Todos extends View {
   findHere(cx) {
     const f = focused(), s = spaces().find((x) => x.active);
     if (f?.agent || (f?.terminal && agents().some((a) => a.address === f.terminal))) this.lastAgent = f.agent ?? f.terminal;
+
+    // Detect space switch: automatically select linked card (starred group)
+    const spaceId = s?.id ?? null;
+    if (spaceId !== this.currentSpaceId) {
+      this.currentSpaceId = spaceId;
+      const sc = shared("spaces.cards") ?? {};
+      const detectCard = (name) => {
+        if (!name) return null;
+        const m = /\b(CARD|EVAH|TASK|PROJ|ISSUE)[-_ ]?([0-9]+)\b/i.exec(name);
+        return m ? `${m[1].toUpperCase()}-${m[2]}` : null;
+      };
+      const explicit = sc.spaces?.[spaceId];
+      const linked = (explicit && explicit !== "none" ? explicit : null) || detectCard(s?.name) || (s?.folder ? sc.folders?.[s.folder] : null) || null;
+      this.groupFilter = linked || null;
+      cx.notify();
+    }
+
     // A space on another computer: the project is worked out there, and its home
     // (printed second) counts as no project, as home does here.
     const m = s?.machine ?? null;
@@ -2401,6 +2419,14 @@ export default class Todos extends View {
     };
     const explicit = sc.spaces?.[activeSpace?.id];
     const linkedCard = (explicit && explicit !== "none" ? explicit : null) || detectCard(activeSpace?.name) || (this.here ? sc.folders?.[this.here] : null) || null;
+
+    // When space changes, automatically select the linked card (the one with the star)
+    const activeSpaceId = activeSpace?.id ?? null;
+    if (this.currentSpaceId !== activeSpaceId) {
+      this.currentSpaceId = activeSpaceId;
+      this.groupFilter = linkedCard || null;
+    }
+
     const baseGroups = [...new Set((this.filter ? (this.lists[this.filter]?.items ?? []) : all).map((it) => it.group).filter(Boolean))];
     if (linkedCard && !baseGroups.includes(linkedCard)) baseGroups.push(linkedCard);
     const activeGroups = baseGroups.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
@@ -2421,13 +2447,16 @@ export default class Todos extends View {
     // A filter tab, as the sidebar's All / Agents: plain text, the picked one
     // shaded; a project's name in its colour, its count, and a small Log and
     // Sync icon when they're on.
-    const chip = (key, label, n, color, on, fn, folder) => {
+    const chip = (key, label, n, color, on, fn, folder, isStar) => {
       const o = folder ? this.lists[keyOf(folder)]?.opts ?? defOpts() : null;
       return h_flex().id(`chip-${key}`).h(26).px(9).gap(5).flex_none().items_center().rounded(9999).cursor_pointer()
         .border_1().border_color(on ? t.accent : t.border)
         .text_color(on ? t.foreground : t.muted).bg(on ? t.raised : t.background)
         .hover((s) => s.bg(t.hover).text_color(t.foreground))
         .on_click((_e, cx) => { fn(); this.unpick(); cx.notify(); })
+        .when(Boolean(isStar), (el) =>
+          el.child(svg("mods/todos/star.svg").size(11).flex_none().text_color(on ? t.accent : (color ?? t.accent)))
+        )
         .child(div().font_semibold().text_color(color ?? (on ? t.foreground : t.muted)).child(label))
         .when(n != null, (el) => el.child(div().text_size(10.5).text_color(t.dim).child(String(n))))
         .when(Boolean(o?.log), (el) => el.child(svg("mods/todos/log.svg").size(11).flex_none().text_color(t.dim)))
@@ -2769,7 +2798,7 @@ export default class Todos extends View {
           const count = open.filter((it) => it.group === grp).length;
           const isPicked = this.groupFilter === grp;
           const isLinked = linkedCard === grp;
-          return chip(`grp-${grp}`, `#${grp}${isLinked ? " ★" : ""}`, count || null, isLinked ? t.accent : t.ansi6, isPicked, () => { this.groupFilter = isPicked ? null : grp; });
+          return chip(`grp-${grp}`, `#${grp}`, count || null, isLinked ? t.accent : t.ansi6, isPicked, () => { this.groupFilter = isPicked ? null : grp; }, null, isLinked);
         }))
         .child(chip("all", "All", open.length, null, !this.filter && !this.groupFilter, () => { this.groupFilter = null; this.setMode("all"); })))
       .when(picks.length > 0, (el) => el.child(pickBar()))
