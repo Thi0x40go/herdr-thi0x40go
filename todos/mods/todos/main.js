@@ -1612,7 +1612,7 @@ export default class Todos extends View {
                   .when(this.modalEditingDesc, (b) => b.child(
                     v_flex().w_full().gap(6).p(6).rounded(8).border_1().border_color(t.accent).bg(t.background)
                       .child(
-                        Textarea.new(this.modalDescTextarea).w_full().h(140).px(8).py(6).rounded(6)
+                        Textarea.new(this.modalDescTextarea).w_full().min_h(140).h(180).px(8).py(6).rounded(6)
                           .border_1().border_color(t.border).bg(t.raised + "44")
                           .text_size(12).text_color(t.foreground)
                       )
@@ -1639,7 +1639,7 @@ export default class Todos extends View {
                   // Reading mode: Formatted Markdown with scroll and border
                   .when(!this.modalEditingDesc, (b) => b.child(
                     Boolean(task.description)
-                      ? div().id("desc-markdown-box").w_full().min_h(70).max_h(240).overflow_y_scrollbar().overflow_x_hidden()
+                      ? div().id("desc-markdown-box").w_full().min_h(140).max_h(260).overflow_y_scrollbar().overflow_x_hidden()
                           .p(10).rounded(8).border_1().border_color(t.border).bg(t.raised + "22").border_l(3).border_color(t.accent)
                           .cursor_pointer().tooltip("Click to edit description")
                           .on_click((_e, cx) => {
