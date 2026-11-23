@@ -113,6 +113,16 @@ const prioCol = (p) => {
   return "#64748b";
 };
 
+function normalizeCard(str) {
+  if (!str) return "";
+  let c = str.trim().replace(/^#/, "").trim();
+  const m = /^([a-zA-Z]{2,8})[-_ ]?([0-9]{2,6})$/i.exec(c);
+  if (m) {
+    return `${m[1].toUpperCase()}-${m[2]}`;
+  }
+  return c.toUpperCase();
+}
+
 const pad = (n) => String(n).padStart(2, "0");
 const dayKey = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 const today = () => dayKey(new Date());
@@ -664,6 +674,7 @@ export default class Todos extends View {
     this.createTitleInput = InputState.new({ placeholder: "What needs to be done?" });
     this.createProjectInput = InputState.new({ placeholder: "Project name (e.g. orchestrator, evah)..." });
     this.createGroupInput = InputState.new({ placeholder: "CARD-XXXX / EVAH-XXXX (optional)" });
+    this.createGroupDropdownOpen = false;
     this.createDescTextarea = TextareaState.new({
       value: "",
       placeholder: "Write specifications, details, error logs, or notes in Markdown...",
@@ -674,6 +685,18 @@ export default class Todos extends View {
     this.createSubInput = InputState.new({ placeholder: "Add initial subtask..." });
 
     this.createTitleInput.on("submit", (_e, cx) => this.submitCreateModal(cx));
+    this.createGroupInput.on("change", (_e, cx) => {
+      this.createGroupDropdownOpen = true;
+      cx.notify();
+    });
+    this.createGroupInput.on("focus", (_e, cx) => {
+      this.createGroupDropdownOpen = true;
+      cx.notify();
+    });
+    this.createGroupInput.on("submit", (_e, cx) => {
+      this.createGroupDropdownOpen = false;
+      this.submitCreateModal(cx);
+    });
     this.createSubInput.on("submit", (_e, cx) => {
       const val = this.createSubInput.value().trim();
       if (val) {
@@ -1589,6 +1612,7 @@ export default class Todos extends View {
     this.createPrioSelected = null;
     this.createInitialSubs = [];
     this.createSubInput.set_value("");
+    this.createGroupDropdownOpen = false;
 
     this.createTitleInput.focus();
     cx.timer.after(200, () => this.createTitleInput.focus());
@@ -1597,6 +1621,7 @@ export default class Todos extends View {
 
   closeCreateModal(cx) {
     this.showCreateModal = false;
+    this.createGroupDropdownOpen = false;
     cx.notify();
   }
 
@@ -1670,7 +1695,15 @@ export default class Todos extends View {
     })).filter((p) => Boolean(p.name));
 
     const all = Object.values(this.lists).flatMap((l) => l.items);
-    const existingCards = [...new Set(all.map((it) => it.group).filter(Boolean))].sort();
+    const sc = shared("spaces.cards") ?? {};
+    const cardSet = new Set(all.map((it) => it.group).filter(Boolean));
+    if (sc.spaces) {
+      Object.values(sc.spaces).forEach((c) => { if (c && c !== "none") cardSet.add(c.replace(/^#/, "")); });
+    }
+    if (sc.folders) {
+      Object.values(sc.folders).forEach((c) => { if (c && c !== "none") cardSet.add(c.replace(/^#/, "")); });
+    }
+    const existingCards = [...cardSet].sort();
 
     const currentProject = this.createProjectInput.value().trim();
     const currentGroup = this.createGroupInput.value().trim();
@@ -1746,32 +1779,105 @@ export default class Todos extends View {
           // 3. Card / Group & Priority Row
           .child(
             h_flex().gap(12).items_start()
-              // Group / Card
+              // Group / Card with Autocomplete Dropdown
               .child(
                 v_flex().flex_1().min_w(0).gap(6)
-                  .child(div().text_size(11.5).font_semibold().text_color(t.muted).child("Card / Group"))
                   .child(
-                    h_flex().h(32).px(8).rounded(7).border_1().border_color(t.border).bg(t.raised).items_center().gap(5)
-                      .child(div().text_size(12).font_semibold().text_color(t.ansi6).child("#"))
-                      .child(Input.new(this.createGroupInput).flex_1().h_full().text_size(12.5).text_color(t.foreground)),
+                    h_flex().justify_between().items_center()
+                      .child(div().text_size(11.5).font_semibold().text_color(t.muted).child("Card / Group"))
+                      .when(this.createGroupDropdownOpen, (b) =>
+                        b.child(
+                          h_flex().gap(3).items_center().cursor_pointer()
+                            .on_click((_e, cx) => {
+                              this.createGroupDropdownOpen = false;
+                              cx.notify();
+                            })
+                            .child(svg("mods/workspace-chrome/chevron-up.svg").size(10).text_color(t.dim))
+                            .child(div().text_size(10.5).text_color(t.dim).hover((s) => s.text_color(t.foreground)).child("Close suggestions"))
+                        )
+                      )
                   )
-                  .when(existingCards.length > 0, (el) =>
-                    el.child(
-                      h_flex().gap(5).flex_wrap().max_h(56).overflow_hidden()
-                        .children(existingCards.slice(0, 8).map((c) => {
+                  // Input Bar
+                  .child(
+                    h_flex().h(32).px(8).rounded(7).border_1()
+                      .border_color(this.createGroupDropdownOpen ? t.accent : t.border)
+                      .bg(t.raised).items_center().gap(5)
+                      .child(div().text_size(12).font_semibold().text_color(t.ansi6).child("#"))
+                      .child(Input.new(this.createGroupInput).flex_1().h_full().text_size(12.5).text_color(t.foreground))
+                      .when(Boolean(currentGroup), (b) =>
+                        b.child(
+                          div().id("btn-clear-group").size(18).rounded(4).cursor_pointer().flex().items_center().justify_center()
+                            .hover((s) => s.bg(t.hover))
+                            .tooltip("Clear")
+                            .on_click((_e, cx) => {
+                              this.createGroupInput.set_value("");
+                              this.createGroupDropdownOpen = true;
+                              cx.notify();
+                            })
+                            .child(svg("mods/workspace-chrome/x.svg").size(10).text_color(t.muted))
+                        )
+                      )
+                      .child(
+                        div().id("btn-toggle-group-dropdown").size(20).rounded(4).cursor_pointer().flex().items_center().justify_center()
+                          .hover((s) => s.bg(t.hover))
+                          .tooltip(this.createGroupDropdownOpen ? "Hide suggestions" : "Show card suggestions")
+                          .on_click((_e, cx) => {
+                            this.createGroupDropdownOpen = !this.createGroupDropdownOpen;
+                            cx.notify();
+                          })
+                          .child(svg(`mods/workspace-chrome/chevron-${this.createGroupDropdownOpen ? "up" : "down"}.svg`).size(10).text_color(t.muted))
+                      )
+                  )
+                  // Autocomplete dropdown (only visible when open)
+                  .when(this.createGroupDropdownOpen, (el) => {
+                    const query = currentGroup.toLowerCase().replace(/^#/, "").trim();
+                    const matchingCards = existingCards.filter((c) => !query || c.toLowerCase().includes(query));
+                    const exactMatch = existingCards.some((c) => c.toLowerCase() === query);
+
+                    return el.child(
+                      v_flex().id("group-autocomplete-menu")
+                        .p(4).gap(2).rounded(7).border_1().border_color(t.border).bg(t.popover).shadow_lg()
+                        .max_h(140).overflow_y_scrollbar()
+                        .when(!exactMatch && query.length > 0, (box) =>
+                          box.child(
+                            h_flex().id("card-opt-custom").h(28).px(8).rounded(5).cursor_pointer().items_center().gap(6)
+                              .bg(t.accent + "18")
+                              .hover((s) => s.bg(t.accent + "2c"))
+                              .on_click((_e, cx) => {
+                                this.createGroupInput.set_value(normalizeCard(currentGroup));
+                                this.createGroupDropdownOpen = false;
+                                cx.notify();
+                              })
+                              .child(div().text_size(11).font_bold().text_color(t.accent).child("+"))
+                              .child(div().text_size(11.5).font_semibold().text_color(t.accent).child(`Use new card #${normalizeCard(currentGroup)}`))
+                          )
+                        )
+                        .children(matchingCards.slice(0, 10).map((c) => {
                           const isPicked = currentGroup.toUpperCase() === c.toUpperCase();
-                          return h_flex().id(`new-card-${c}`).h(22).px(6).rounded(5).cursor_pointer().items_center()
-                            .border_1().border_color(isPicked ? t.ansi6 : t.border)
-                            .bg(isPicked ? t.ansi6 + "22" : t.raised)
+                          return h_flex().id(`card-opt-${c}`).h(28).px(8).rounded(5).cursor_pointer().items_center().justify_between()
+                            .bg(isPicked ? t.ansi6 + "22" : "transparent")
                             .hover((s) => s.bg(t.hover))
                             .on_click((_e, cx) => {
                               this.createGroupInput.set_value(c);
+                              this.createGroupDropdownOpen = false;
                               cx.notify();
                             })
-                            .child(div().text_size(10.5).font_semibold().text_color(isPicked ? t.foreground : t.ansi6).child(`#${c}`));
-                        })),
-                    ),
-                  ),
+                            .child(
+                              h_flex().gap(6).items_center()
+                                .child(div().text_size(11).font_bold().text_color(t.ansi6).child("#"))
+                                .child(div().text_size(12).font_medium().text_color(isPicked ? t.ansi6 : t.foreground).child(c))
+                            )
+                            .when(isPicked, (b) =>
+                              b.child(div().text_size(11).font_semibold().text_color(t.ansi6).child("✓"))
+                            );
+                        }))
+                        .when(matchingCards.length === 0 && !query, (box) =>
+                          box.child(
+                            div().px(8).py(6).text_size(11).text_color(t.dim).child("No cards found. Type a card name.")
+                          )
+                        )
+                    );
+                  }),
               )
               // Priority
               .child(
