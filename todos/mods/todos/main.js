@@ -767,13 +767,13 @@ export default class Todos extends View {
 
     // Filtro e Visualização Customizada de Cards
     this.customCardFilter = null; // null = segue os cards do Space ativo; Array de cards = filtro customizado
-    this.cardDropdownOpen = false;
-    this.cardSearchInput = InputState.new({ placeholder: "Filtrar cards..." });
-    this.cardSearchInput.on("change", (_e, cx) => cx.notify());
-
     this.showCardFilterModal = false;
+    this.modalCardFilter = "";
     this.modalCardSearchInput = InputState.new({ placeholder: "Buscar por nome do card, projeto ou space..." });
-    this.modalCardSearchInput.on("change", (_e, cx) => cx.notify());
+    this.modalCardSearchInput.on("change", (_e, cx) => {
+      this.modalCardFilter = this.modalCardSearchInput.value().trim().toLowerCase().replace(/^#/, "");
+      cx.notify();
+    });
     this.modalSelectedCards = new Set();
   }
 
@@ -844,8 +844,9 @@ export default class Todos extends View {
 
   openCardFilterModal(cx) {
     this.showCardFilterModal = true;
-    this.cardDropdownOpen = false;
+    this.modalCardFilter = "";
     this.modalCardSearchInput.set_value("");
+    this.modalCardSearchInput.focus();
 
     const activeSpace = spaces().find((s) => s.active);
     const sc = shared("spaces.cards") ?? {};
@@ -880,7 +881,6 @@ export default class Todos extends View {
 
   resetCardFilterToSpace(cx) {
     this.customCardFilter = null;
-    this.cardDropdownOpen = false;
     this.showCardFilterModal = false;
     cx.notify();
   }
@@ -2361,198 +2361,11 @@ export default class Todos extends View {
       );
   }
 
-  renderCardDropdown(t, cx, activeSpace, linkedCards) {
-    if (!this.cardDropdownOpen) return div();
-
-    const allCards = this.getAllProjectCards();
-    const query = this.cardSearchInput.value().trim().toLowerCase().replace(/^#/, "");
-    const matching = allCards.filter((c) => {
-      if (!query) return true;
-      if (c.name.toLowerCase().includes(query)) return true;
-      if (c.space?.name?.toLowerCase().includes(query)) return true;
-      return false;
-    }).slice(0, 10);
-
-    const effectiveCards = this.customCardFilter !== null ? this.customCardFilter : linkedCards;
-    const isCustom = this.customCardFilter !== null;
-
-    return div()
-      .id("card-dropdown-backdrop")
-      .absolute()
-      .inset_0()
-      .on_click((_e, cx) => {
-        this.cardDropdownOpen = false;
-        cx.notify();
-      })
-      .child(
-        div()
-          .id("card-dropdown-popover")
-          .absolute()
-          .top(44)
-          .left(14)
-          .w(340)
-          .max_h(400)
-          .rounded(8)
-          .border_1()
-          .border_color(t.border)
-          .bg(t.popover)
-          .shadow_lg()
-          .flex()
-          .flex_col()
-          .overflow_hidden()
-          .on_click((_e, cx) => {
-            cx.stop_propagation();
-          })
-          // Top search input
-      .child(
-        h_flex()
-          .p(8)
-          .border_b(1)
-          .border_color(t.border)
-          .gap(6)
-          .items_center()
-          .child(svg("mods/todos/tag.svg").size(12).text_color(t.dim))
-          .child(
-            Input.new(this.cardSearchInput)
-              .flex_1()
-              .h(26)
-              .px(6)
-              .rounded(5)
-              .border_1()
-              .border_color(t.input)
-              .bg(t.background)
-              .text_size(11.5)
-              .text_color(t.foreground),
-          )
-          .child(
-            div()
-              .size(18)
-              .rounded(4)
-              .cursor_pointer()
-              .flex()
-              .items_center()
-              .justify_center()
-              .hover((s) => s.bg(t.hover))
-              .on_click((_e, cx) => {
-                this.cardDropdownOpen = false;
-                cx.notify();
-              })
-              .child(svg("mods/workspace-chrome/x.svg").size(10).text_color(t.muted)),
-          ),
-      )
-      // Reset to Space option
-      .when(isCustom, (el) =>
-        el.child(
-          h_flex()
-            .px(10)
-            .py(7)
-            .gap(6)
-            .items_center()
-            .cursor_pointer()
-            .bg(t.accent + "18")
-            .border_b(1)
-            .border_color(t.accent + "44")
-            .hover((s) => s.bg(t.accent + "2c"))
-            .on_click((_e, cx) => this.resetCardFilterToSpace(cx))
-            .child(svg("mods/todos/star.svg").size(11).text_color(t.accent))
-            .child(div().text_size(11.5).font_semibold().text_color(t.accent).child(`★ Voltar para o Space (${activeSpace?.name || "Space"})`)),
-        ),
-      )
-      // List of cards
-      .child(
-        v_flex()
-          .flex_1()
-          .min_h(0)
-          .overflow_y_scrollbar()
-          .p(4)
-          .gap(1)
-          .when(matching.length === 0, (el) =>
-            el.child(
-              div().px(10).py(8).text_size(11.5).text_color(t.dim).child("Nenhum card encontrado"),
-            ),
-          )
-          .children(
-            matching.map((c) => {
-              const isPicked = effectiveCards.includes(c.name);
-              return h_flex()
-                .id(`dropdown-card-${c.name}`)
-                .h(30)
-                .px(8)
-                .gap(6)
-                .items_center()
-                .rounded(5)
-                .cursor_pointer()
-                .bg(isPicked ? t.accent + "20" : "#00000000")
-                .hover((s) => s.bg(isPicked ? t.accent + "2c" : t.hover))
-                .on_click((_e, cx) => {
-                  if (effectiveCards.includes(c.name) && effectiveCards.length > 1) {
-                    this.customCardFilter = effectiveCards.filter((x) => x !== c.name);
-                  } else {
-                    this.customCardFilter = [c.name];
-                  }
-                  this.cardDropdownOpen = false;
-                  cx.notify();
-                })
-                .child(
-                  div()
-                    .size(6)
-                    .rounded(3)
-                    .bg(isPicked ? t.accent : c.space ? t.ansi4 : t.dim),
-                )
-                .child(
-                  div()
-                    .text_size(12)
-                    .font_semibold()
-                    .text_color(isPicked ? t.accent : t.foreground)
-                    .child(`#${c.name}`),
-                )
-                .child(
-                  div()
-                    .text_size(10.5)
-                    .text_color(t.dim)
-                    .child(`(${c.open})`),
-                )
-                .child(div().flex_1())
-                .child(
-                  div()
-                    .text_size(10)
-                    .text_color(c.space?.isCurrent ? t.accent : c.space ? t.ansi4 : t.dim)
-                    .child(c.space?.isCurrent ? "Space atual" : c.space ? c.space.name : "sem space"),
-                );
-            }),
-          ),
-      )
-      // Footer action: open full modal
-      .child(
-        h_flex()
-          .h(34)
-          .px(10)
-          .gap(6)
-          .items_center()
-          .justify_between()
-          .border_t(1)
-          .border_color(t.border)
-          .bg(t.raised)
-          .cursor_pointer()
-          .hover((s) => s.bg(t.hover))
-          .on_click((_e, cx) => this.openCardFilterModal(cx))
-          .child(
-            h_flex()
-              .gap(5)
-              .items_center()
-              .child(svg("mods/todos/tag.svg").size(11).text_color(t.accent))
-              .child(div().text_size(11).font_medium().text_color(t.foreground).child("Gerenciador completo de Cards...")),
-          )
-          .child(svg("mods/todos/arrow-up-right.svg").size(11).text_color(t.accent)),
-      ),
-    );
-  }
-
   renderCardFilterModal(t, cx) {
     if (!this.showCardFilterModal) return div();
 
     const allCards = this.getAllProjectCards();
-    const query = this.modalCardSearchInput.value().trim().toLowerCase().replace(/^#/, "");
+    const query = (this.modalCardFilter ?? this.modalCardSearchInput.value()).trim().toLowerCase().replace(/^#/, "");
 
     const filteredCards = allCards.filter((c) => {
       if (!query) return true;
@@ -2812,7 +2625,9 @@ export default class Todos extends View {
                     .justify_center()
                     .hover((s) => s.bg(t.hover))
                     .on_click((_e, cx) => {
+                      this.modalCardFilter = "";
                       this.modalCardSearchInput.set_value("");
+                      this.modalCardSearchInput.focus();
                       cx.notify();
                     })
                     .child(svg("mods/workspace-chrome/x.svg").size(10).text_color(t.muted)),
@@ -3934,12 +3749,6 @@ export default class Todos extends View {
             cx.stop_propagation();
             return;
           }
-          if (this.cardDropdownOpen) {
-            this.cardDropdownOpen = false;
-            cx.notify();
-            cx.stop_propagation();
-            return;
-          }
           if (this.showCreateModal) {
             this.closeCreateModal(cx);
             cx.stop_propagation();
@@ -3968,14 +3777,11 @@ export default class Todos extends View {
                 h_flex().id("btn-space-card-custom-badge").h(24).px(8).rounded(6).cursor_pointer().items_center().gap(5)
                   .bg(t.ansi4 + "22").border_1().border_color(t.ansi4 + "66")
                   .hover((s) => s.bg(t.ansi4 + "38"))
-                  .tooltip("Filtro customizado de cards ativo (clique para alternar)")
-                  .on_click((_e, cx) => {
-                    this.cardDropdownOpen = !this.cardDropdownOpen;
-                    cx.notify();
-                  })
+                  .tooltip("Filtro de cards ativo (clique para gerenciar)")
+                  .on_click((_e, cx) => this.openCardFilterModal(cx))
                   .child(svg("mods/todos/tag.svg").size(11).text_color(t.ansi4))
                   .child(div().text_size(11.5).font_bold().text_color(t.ansi4).child(`Visualizando ${effectiveCards.length} ${effectiveCards.length === 1 ? "Card" : "Cards"}`))
-                  .child(svg(`mods/workspace-chrome/chevron-${this.cardDropdownOpen ? "up" : "down"}.svg`).size(8).text_color(t.ansi4))
+                  .child(svg("mods/todos/arrow-up.svg").size(9).text_color(t.ansi4))
               )
             )
             .when(this.customCardFilter === null && linkedCards.length > 0, (b) =>
@@ -3988,14 +3794,11 @@ export default class Todos extends View {
                       h_flex().id(`btn-space-card-badge-${c}`).h(24).px(8).rounded(6).cursor_pointer().items_center().gap(5)
                         .bg(t.accent + "1f").border_1().border_color(t.accent + "55")
                         .hover((s) => s.bg(t.accent + "33").border_color(t.accent))
-                        .tooltip(`Card atribuído: #${c} (clique para buscar ou trocar cards)`)
-                        .on_click((_e, cx) => {
-                          this.cardDropdownOpen = !this.cardDropdownOpen;
-                          cx.notify();
-                        })
+                        .tooltip(`Card atribuído: #${c} (clique para gerenciar cards)`)
+                        .on_click((_e, cx) => this.openCardFilterModal(cx))
                         .child(svg("mods/todos/star.svg").size(11).text_color(t.accent))
                         .child(div().text_size(11.5).font_bold().text_color(t.accent).child(`#${c}`))
-                        .child(svg(`mods/workspace-chrome/chevron-${this.cardDropdownOpen ? "up" : "down"}.svg`).size(8).text_color(t.accent + "aa"))
+                        .child(svg("mods/todos/arrow-up.svg").size(9).text_color(t.accent + "aa"))
                     )
                   )
               )
@@ -4005,22 +3808,12 @@ export default class Todos extends View {
                 h_flex().id("btn-space-card-empty-badge").h(24).px(8).rounded(6).cursor_pointer().items_center().gap(5)
                   .bg(t.ansi3 + "1f").border_1().border_color(t.ansi3 + "55")
                   .hover((s) => s.bg(t.ansi3 + "33"))
-                  .tooltip("Clique para buscar ou vincular Cards")
-                  .on_click((_e, cx) => {
-                    this.cardDropdownOpen = !this.cardDropdownOpen;
-                    cx.notify();
-                  })
+                  .tooltip("Clique para gerenciar e vincular Cards")
+                  .on_click((_e, cx) => this.openCardFilterModal(cx))
                   .child(svg("mods/todos/tag.svg").size(11).text_color(t.ansi3))
                   .child(div().text_size(11.5).font_semibold().text_color(t.ansi3).child("Sem Card"))
-                  .child(svg(`mods/workspace-chrome/chevron-${this.cardDropdownOpen ? "up" : "down"}.svg`).size(8).text_color(t.ansi3))
+                  .child(svg("mods/todos/arrow-up.svg").size(9).text_color(t.ansi3))
               )
-            )
-            .child(
-              h_flex().id("btn-open-card-filter-modal").size(24).rounded(5).cursor_pointer().items_center().justify_center()
-                .hover((s) => s.bg(t.hover))
-                .tooltip("Gerenciador completo de cards e filtros")
-                .on_click((_e, cx) => this.openCardFilterModal(cx))
-                .child(svg("mods/todos/arrow-up-right.svg").size(11).text_color(t.muted))
             )
             .when(effectiveCards.length > 0, (b) =>
               b.child(div().px(5).py(1).rounded(4).border_1().border_color(t.border).text_size(10).text_color(t.muted).child(`${open.length} ${open.length === 1 ? "aberta" : "abertas"}`))
@@ -4213,7 +4006,6 @@ export default class Todos extends View {
           )
         )
       )
-      .when(Boolean(this.cardDropdownOpen), (el) => el.child(this.renderCardDropdown(t, cx, activeSpace, linkedCards)))
       .when(Boolean(this.showCardFilterModal), (el) => el.child(this.renderCardFilterModal(t, cx)))
       .when(Boolean(this.showCreateModal), (el) => el.child(this.renderCreateModal(t, cx)))
       .when(Boolean(!this.showCreateModal && !this.showCardFilterModal && this.detailTask && this.lists[this.detailTask.slug]?.items?.[this.detailTask.i]), (el) => el.child(this.renderDetailModal(t, cx)));
