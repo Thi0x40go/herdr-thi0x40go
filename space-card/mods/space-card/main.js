@@ -6,7 +6,7 @@ import { run, props, closeOverlay, theme, spaces, panes, shared, setShared, read
 const SPACES_CARDS_FILE = () => `${home()}/.local/share/herdr/spaces-cards.json`;
 const TODOS_DIR = () => `${home()}/.local/share/herdr/todos`;
 
-function normalizeCard(str) {
+export function normalizeCard(str) {
   if (!str) return "";
   let c = str.trim().replace(/^#/, "").trim();
   const m = /^([a-zA-Z]{2,8})[-_ ]?([0-9]{2,6})$/i.exec(c);
@@ -14,6 +14,16 @@ function normalizeCard(str) {
     return `${m[1].toUpperCase()}-${m[2]}`;
   }
   return c.toUpperCase();
+}
+
+export function parseCards(val) {
+  if (!val) return [];
+  if (Array.isArray(val)) {
+    return [...new Set(val.map(normalizeCard).filter(Boolean))];
+  }
+  const str = String(val).trim();
+  if (str === "none" || !str) return [];
+  return [...new Set(str.split(/[,;\s]+/).map(normalizeCard).filter(Boolean))];
 }
 
 function detectCardFromName(name) {
@@ -36,14 +46,31 @@ export default class SpaceCardDialog extends View {
     }
 
     const sc = shared("spaces.cards") ?? {};
-    const explicit = sc.spaces?.[this.spaceId];
-    this.currentCard = p.card || (explicit && explicit !== "none" ? explicit : null) || detectCardFromName(this.space?.name) || (this.folder ? sc.folders?.[this.folder] : "") || "";
-    this.text = this.currentCard;
+    const explicitSpace = sc.spaces?.[this.spaceId];
+    const explicitFolder = this.folder ? sc.folders?.[this.folder] : null;
+    let initialCards = [];
+    if (explicitSpace === "none") {
+      initialCards = [];
+    } else if (explicitSpace) {
+      initialCards = parseCards(explicitSpace);
+    } else if (explicitFolder === "none") {
+      initialCards = [];
+    } else if (explicitFolder) {
+      initialCards = parseCards(explicitFolder);
+    } else {
+      const fromP = p.card ? parseCards(p.card) : [];
+      const fromName = detectCardFromName(this.space?.name);
+      initialCards = fromP.length ? fromP : (fromName ? [fromName] : []);
+    }
+    this.selectedCards = new Set(initialCards);
+    this.currentCards = [...this.selectedCards];
+    this.text = this.currentCards.join(", ");
 
-    this.input = InputState.new({ value: this.currentCard, placeholder: "e.g. EVAH-1303, CARD-2467..." });
+    this.input = InputState.new({ value: this.text, placeholder: "e.g. EVAH-1303, CARD-2467..." });
     this.input.on("submit", (_e, cx) => this.save(cx));
     this.input.on("change", (_e, cx) => {
       this.text = this.input.value();
+      this.selectedCards = new Set(parseCards(this.text));
       cx.notify();
     });
     this.inputFocused = true;
@@ -92,14 +119,18 @@ export default class SpaceCardDialog extends View {
 
   async readCardsData() {
     let raw = await readTextFile(SPACES_CARDS_FILE()).catch(() => null);
-    let data = { spaces: {}, folders: {} };
+    const inMem = shared("spaces.cards") ?? {};
+    let data = {
+      spaces: { ...(inMem.spaces ?? {}) },
+      folders: { ...(inMem.folders ?? {}) },
+    };
     if (raw) {
       try {
         const parsed = JSON.parse(raw);
         if (typeof parsed === "object" && parsed !== null) {
           data = {
-            spaces: parsed.spaces || parsed.by_id || {},
-            folders: parsed.folders || parsed.by_folder || {},
+            spaces: { ...(parsed.spaces || parsed.by_id || {}), ...(inMem.spaces ?? {}) },
+            folders: { ...(parsed.folders || parsed.by_folder || {}), ...(inMem.folders ?? {}) },
           };
         }
       } catch {}
@@ -107,94 +138,116 @@ export default class SpaceCardDialog extends View {
     return { data, raw };
   }
 
-  async writeCardsData(data, oldRaw = null) {
+  async writeCardsData(data) {
     const jsonStr = JSON.stringify(data, null, 2);
-    let ok = false;
     try {
-      await writeTextFile(SPACES_CARDS_FILE(), jsonStr, oldRaw ?? undefined);
-      ok = true;
-    } catch {}
-    if (!ok) {
-      try {
-        await exec("python3", [
-          "-c",
-          "import sys, os; p = os.path.expanduser('~/.local/share/herdr/spaces-cards.json'); os.makedirs(os.path.dirname(p), exist_ok=True); open(p, 'w', encoding='utf-8').write(sys.argv[1])",
-          jsonStr,
-        ]);
-      } catch {}
+      await exec("python3", [
+        "-c",
+        "import sys, os; p = os.path.expanduser('~/.local/share/herdr/spaces-cards.json'); os.makedirs(os.path.dirname(p), exist_ok=True); open(p, 'w', encoding='utf-8').write(sys.argv[1])",
+        jsonStr,
+      ]);
+    } catch {
+      await writeTextFile(SPACES_CARDS_FILE(), jsonStr, null).catch(() => null);
     }
     setShared("spaces.cards", data);
   }
 
   pickCard(cardName, cx) {
-    this.text = cardName;
-    this.input.set_value(cardName);
+    const card = normalizeCard(cardName);
+    if (!card) return;
+    if (this.selectedCards.has(card)) {
+      this.selectedCards.delete(card);
+    } else {
+      this.selectedCards.add(card);
+    }
+    const val = [...this.selectedCards].join(", ");
+    this.text = val;
+    this.input.set_value(val);
+    this.input.focus();
+    cx.notify();
+  }
+
+  removeCard(cardName, cx) {
+    this.selectedCards.delete(cardName);
+    const val = [...this.selectedCards].join(", ");
+    this.text = val;
+    this.input.set_value(val);
     this.input.focus();
     cx.notify();
   }
 
   save(cx) {
     const rawVal = this.text || this.input.value();
-    const card = normalizeCard(rawVal);
+    const cards = parseCards(rawVal);
     const overlay = this.overlay || props()?.overlay;
 
-    if (!card) {
+    if (cards.length === 0) {
       this.unlink(cx);
       return;
     }
 
-    // Atualização otimista imediata na memória para todos os componentes
+    const cardValue = cards.join(", ");
+
+    // 1. Atualização otimista imediata na memória
     const sc = shared("spaces.cards") ?? { spaces: {}, folders: {} };
     const currentSc = {
       spaces: { ...(sc.spaces ?? {}) },
       folders: { ...(sc.folders ?? {}) },
     };
-    if (this.spaceId) currentSc.spaces[this.spaceId] = card;
-    if (this.folder) currentSc.folders[this.folder] = card;
+    if (this.spaceId) currentSc.spaces[this.spaceId] = cardValue;
+    if (this.folder) currentSc.folders[this.folder] = cardValue;
     setShared("spaces.cards", currentSc);
 
-    // Fecha o overlay na hora
-    if (overlay) closeOverlay(overlay);
-
-    // Grava no disco
+    // 2. Grava no disco e SÓ DEPOIS fecha o overlay
     cx.spawn(async (cx) => {
-      const { data, raw } = await this.readCardsData();
-      if (this.spaceId) data.spaces[this.spaceId] = card;
-      if (this.folder) data.folders[this.folder] = card;
-      await this.writeCardsData(data, raw);
-      cx.notify();
+      try {
+        const { data } = await this.readCardsData();
+        if (this.spaceId) data.spaces[this.spaceId] = cardValue;
+        if (this.folder) data.folders[this.folder] = cardValue;
+        await this.writeCardsData(data);
+      } catch (err) {
+        console.error("Failed to save space card:", err);
+      } finally {
+        if (overlay) closeOverlay(overlay);
+        cx.notify();
+      }
     });
   }
 
   unlink(cx) {
     const overlay = this.overlay || props()?.overlay;
 
-    // Atualização otimista imediata
+    // 1. Atualização otimista imediata
     const sc = shared("spaces.cards") ?? { spaces: {}, folders: {} };
     const currentSc = {
       spaces: { ...(sc.spaces ?? {}) },
       folders: { ...(sc.folders ?? {}) },
     };
     if (this.spaceId) currentSc.spaces[this.spaceId] = "none";
-    if (this.folder) delete currentSc.folders[this.folder];
+    if (this.folder) currentSc.folders[this.folder] = "none";
     setShared("spaces.cards", currentSc);
 
-    if (overlay) closeOverlay(overlay);
-
+    // 2. Grava no disco e SÓ DEPOIS fecha o overlay
     cx.spawn(async (cx) => {
-      const { data, raw } = await this.readCardsData();
-      if (this.spaceId) data.spaces[this.spaceId] = "none";
-      if (this.folder) delete data.folders[this.folder];
-      await this.writeCardsData(data, raw);
-      cx.notify();
+      try {
+        const { data } = await this.readCardsData();
+        if (this.spaceId) data.spaces[this.spaceId] = "none";
+        if (this.folder) data.folders[this.folder] = "none";
+        await this.writeCardsData(data);
+      } catch (err) {
+        console.error("Failed to unlink space card:", err);
+      } finally {
+        if (overlay) closeOverlay(overlay);
+        cx.notify();
+      }
     });
   }
 
   render(cx) {
     const t = theme();
-    const currentVal = normalizeCard(this.text || this.input.value());
     const spaceName = this.space?.name || "Space";
     const shortFolder = this.folder ? this.folder.replace(new RegExp(`^${home()}`), "~") : "";
+    const activeCards = [...this.selectedCards];
 
     const button = (id, text, primary, action, danger = false) =>
       h_flex()
@@ -244,7 +297,7 @@ export default class SpaceCardDialog extends View {
                 div()
                   .text_size(15)
                   .font_semibold()
-                  .child(`Link Space #${spaceName} to Card`),
+                  .child(`Link Space #${spaceName} to Cards`),
               ),
           )
           .child(
@@ -284,8 +337,8 @@ export default class SpaceCardDialog extends View {
             h_flex()
               .justify_between()
               .items_center()
-              .child(div().text_size(11.5).font_medium().text_color(t.dim).child("Card / Group ID"))
-              .when(Boolean(this.text || this.input.value()), (el) =>
+              .child(div().text_size(11.5).font_medium().text_color(t.dim).child("Card / Group IDs"))
+              .when(Boolean(this.text || this.input.value() || this.selectedCards.size > 0), (el) =>
                 el.child(
                   div()
                     .text_size(11)
@@ -293,6 +346,7 @@ export default class SpaceCardDialog extends View {
                     .cursor_pointer()
                     .hover((s) => s.text_color(t.foreground))
                     .on_click((_e, cx) => {
+                      this.selectedCards.clear();
                       this.text = "";
                       this.input.set_value("");
                       this.input.focus();
@@ -301,6 +355,43 @@ export default class SpaceCardDialog extends View {
                     .child("Clear"),
                 ),
               ),
+          )
+          // Chips of selected cards
+          .when(activeCards.length > 0, (el) =>
+            el.child(
+              h_flex()
+                .flex_wrap()
+                .gap(6)
+                .children(
+                  activeCards.map((c) =>
+                    h_flex()
+                      .h(24)
+                      .px(8)
+                      .rounded(6)
+                      .gap(5)
+                      .items_center()
+                      .bg(t.ansi6 + "22")
+                      .border_1()
+                      .border_color(t.ansi6 + "66")
+                      .child(div().text_size(11).font_bold().text_color(t.ansi6).child("#" + c))
+                      .child(
+                        div()
+                          .size(14)
+                          .rounded(4)
+                          .flex()
+                          .items_center()
+                          .justify_center()
+                          .cursor_pointer()
+                          .hover((s) => s.bg(t.ansi6 + "44"))
+                          .on_click((_e, cx) => {
+                            cx.stop_propagation();
+                            this.removeCard(c, cx);
+                          })
+                          .child(svg("mods/workspace-chrome/x.svg").size(8).text_color(t.ansi6)),
+                      ),
+                  ),
+                ),
+            ),
           )
           .child(
             h_flex()
@@ -325,7 +416,7 @@ export default class SpaceCardDialog extends View {
             div()
               .text_size(11)
               .text_color(t.dim)
-              .child("Enter a card identifier like EVAH-1303, CARD-2467, or click an existing one below."),
+              .child("Enter one or more cards (comma-separated, e.g. EVAH-1303, CARD-2467) or click existing cards below."),
           ),
       )
       // Existing cards section
@@ -352,7 +443,7 @@ export default class SpaceCardDialog extends View {
                   .overflow_hidden()
                   .children(
                     this.existingGroups.map((g) => {
-                      const isPicked = currentVal === g.name;
+                      const isPicked = this.selectedCards.has(g.name);
                       return h_flex()
                         .id(`pick-card-${g.name}`)
                         .px(8)
@@ -366,6 +457,9 @@ export default class SpaceCardDialog extends View {
                         .bg(isPicked ? (t.ansi6 + "28") : t.raised)
                         .hover((s) => s.bg(t.hover).border_color(t.ansi6))
                         .on_click((_e, cx) => this.pickCard(g.name, cx))
+                        .when(isPicked, (el) =>
+                          el.child(svg("mods/workspace-chrome/check.svg").size(10).text_color(t.ansi6)),
+                        )
                         .child(
                           div()
                             .text_size(11.5)
@@ -390,8 +484,8 @@ export default class SpaceCardDialog extends View {
           .items_center()
           .justify_between()
           .child(
-            this.currentCard
-              ? button("scd-unlink", "Unlink Card", false, (_e, cx) => this.unlink(cx), true)
+            this.currentCards.length > 0
+              ? button("scd-unlink", "Unlink All Cards", false, (_e, cx) => this.unlink(cx), true)
               : div(),
           )
           .child(
@@ -401,7 +495,7 @@ export default class SpaceCardDialog extends View {
                 const overlay = this.overlay || props()?.overlay;
                 if (overlay) closeOverlay(overlay);
               }))
-              .child(button("scd-save", "Save Link", true, (_e, cx) => this.save(cx))),
+              .child(button("scd-save", "Save Links", true, (_e, cx) => this.save(cx))),
           ),
       );
   }

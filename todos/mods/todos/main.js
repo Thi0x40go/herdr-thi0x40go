@@ -123,6 +123,27 @@ function normalizeCard(str) {
   return c.toUpperCase();
 }
 
+export function parseCards(val) {
+  if (!val) return [];
+  if (Array.isArray(val)) {
+    return [...new Set(val.map(normalizeCard).filter(Boolean))];
+  }
+  const str = String(val).trim();
+  if (str === "none" || !str) return [];
+  return [...new Set(str.split(/[,;\s]+/).map(normalizeCard).filter(Boolean))];
+}
+
+function getTaskCard(x, cardList) {
+  if (!x || !cardList || !cardList.length) return null;
+  for (const card of cardList) {
+    if (x.group && cardsMatch(x.group, card)) return card;
+    if (cardsMatch(x.text, card)) return card;
+    const cardInText = /\b(CARD|EVAH|TASK|PROJ|ISSUE)[-_ ]?([0-9]+)\b/i.exec(x.text);
+    if (cardInText && cardsMatch(`${cardInText[1]}-${cardInText[2]}`, card)) return card;
+  }
+  return null;
+}
+
 function cardsMatch(a, b) {
   if (!a || !b) return false;
   const sa = String(a).trim().toUpperCase().replace(/^#/, "");
@@ -1822,7 +1843,7 @@ export default class Todos extends View {
     }
     this.createProjectInput.set_value(currentProjectName);
 
-    // Card padrão: o card vinculado ao space ativo
+    // Card padrão: o primeiro card vinculado ao space ativo
     const activeSpace = spaces().find((s) => s.active);
     const sc = shared("spaces.cards") ?? {};
     const detectCard = (name) => {
@@ -1831,8 +1852,9 @@ export default class Todos extends View {
       return m ? `${m[1].toUpperCase()}-${m[2]}` : "";
     };
     const explicit = sc.spaces?.[activeSpace?.id];
-    const linkedCard = (explicit && explicit !== "none" ? explicit : null) || detectCard(activeSpace?.name) || "";
-    this.createGroupInput.set_value(linkedCard);
+    const linkedCards = parseCards(explicit && explicit !== "none" ? explicit : (detectCard(activeSpace?.name) || ""));
+    const defaultCard = linkedCards[0] || "";
+    this.createGroupInput.set_value(defaultCard);
 
     this.createTitleInput.set_value("");
     this.createDescTextarea.set_value("");
@@ -1914,12 +1936,19 @@ export default class Todos extends View {
     const sc = shared("spaces.cards") ?? {};
     const cardSet = new Set(all.map((it) => it.group).filter(Boolean));
     if (sc.spaces) {
-      Object.values(sc.spaces).forEach((c) => { if (c && c !== "none") cardSet.add(c.replace(/^#/, "")); });
+      Object.values(sc.spaces).forEach((c) => {
+        if (c && c !== "none") parseCards(c).forEach((card) => cardSet.add(card));
+      });
     }
     if (sc.folders) {
-      Object.values(sc.folders).forEach((c) => { if (c && c !== "none") cardSet.add(c.replace(/^#/, "")); });
+      Object.values(sc.folders).forEach((c) => {
+        if (c && c !== "none") parseCards(c).forEach((card) => cardSet.add(card));
+      });
     }
     const existingCards = [...cardSet].sort();
+
+    const activeSpace = spaces().find((s) => s.active);
+    const linkedSpaceCards = parseCards(sc.spaces?.[activeSpace?.id] ?? "");
 
     const currentProject = this.createProjectInput.value().trim();
     const currentGroup = this.createGroupInput.value().trim();
@@ -2012,6 +2041,26 @@ export default class Todos extends View {
                             .child(div().text_size(10.5).text_color(t.dim).hover((s) => s.text_color(t.foreground)).child("Fechar sugestões"))
                         )
                       )
+                  )
+                  .when(linkedSpaceCards.length > 1, (b) =>
+                    b.child(
+                      h_flex().gap(5).items_center().flex_wrap()
+                        .child(div().text_size(10.5).text_color(t.dim).child("Cards do Space:"))
+                        .children(
+                          linkedSpaceCards.map((c) => {
+                            const isPicked = normalizeCard(currentGroup) === c;
+                            return h_flex().h(22).px(7).rounded(5).cursor_pointer().items_center().gap(3)
+                              .bg(isPicked ? t.ansi6 + "28" : t.raised).border_1().border_color(isPicked ? t.ansi6 : t.border)
+                              .hover((s) => s.border_color(t.ansi6))
+                              .on_click((_e, cx) => {
+                                this.createGroupInput.set_value(c);
+                                this.createGroupDropdownOpen = false;
+                                cx.notify();
+                              })
+                              .child(div().text_size(10.5).font_semibold().text_color(isPicked ? t.ansi6 : t.muted).child(`#${c}`));
+                          })
+                        )
+                    )
                   )
                   // Input Bar
                   .child(
@@ -2690,27 +2739,53 @@ export default class Todos extends View {
       return m ? `${m[1].toUpperCase()}-${m[2]}` : null;
     };
     const explicitSpace = sc.spaces?.[activeSpace?.id];
-    let linkedCard = null;
+    let linkedCards = [];
     if (explicitSpace === "none") {
-      linkedCard = null;
+      linkedCards = [];
     } else if (explicitSpace) {
-      linkedCard = explicitSpace;
+      linkedCards = parseCards(explicitSpace);
     } else {
-      linkedCard = detectCard(activeSpace?.name) || null;
+      const fromName = detectCard(activeSpace?.name);
+      linkedCards = fromName ? [fromName] : [];
     }
 
-    // Strict Space Card scope: display tasks belonging to the active Space's assigned Card
-    const cardItems = linkedCard ? all.filter((x) => {
-      if (x.group && cardsMatch(x.group, linkedCard)) return true;
-      if (cardsMatch(x.text, linkedCard)) return true;
-      const cardInText = /\b(CARD|EVAH|TASK|PROJ|ISSUE)[-_ ]?([0-9]+)\b/i.exec(x.text);
-      if (cardInText && cardsMatch(`${cardInText[1]}-${cardInText[2]}`, linkedCard)) return true;
+    // Strict Space Card scope: display tasks belonging to the active Space's assigned Card(s)
+    const cardItems = linkedCards.length > 0 ? all.filter((x) => {
+      const matched = getTaskCard(x, linkedCards);
+      if (matched) {
+        x._matchedCard = matched;
+        return true;
+      }
       return false;
     }) : [];
     const open = cardItems.filter((x) => !x.done);
     const doneToday = cardItems.filter((x) => x.done).sort((a, b) => (b.doneOn ?? "").localeCompare(a.doneOn ?? ""));
     const dueKey = (x) => (x.due ? x.due.padEnd(16, " ") : "~");
-    const list = open.sort((a, b) => (b.slug === hereSlug) - (a.slug === hereSlug) || dueKey(a).localeCompare(dueKey(b)) || a.slug.localeCompare(b.slug) || a.i - b.i);
+
+    // Grouping & Card-scoped indexing:
+    // When multiple cards are linked to a Space, group open tasks by card and index 1..N per card!
+    const cardGroups = [];
+    let allGroupedOpen = [];
+    if (linkedCards.length > 1) {
+      for (const card of linkedCards) {
+        const groupTasks = open.filter((x) => x._matchedCard === card || cardsMatch(x.group, card));
+        groupTasks.sort((a, b) => (b.slug === hereSlug) - (a.slug === hereSlug) || dueKey(a).localeCompare(dueKey(b)) || a.slug.localeCompare(b.slug) || a.i - b.i);
+        groupTasks.forEach((t, idx) => {
+          t.displayIndex = idx + 1;
+          t.cardGroup = card;
+        });
+        cardGroups.push({ card, tasks: groupTasks });
+        allGroupedOpen = allGroupedOpen.concat(groupTasks);
+      }
+    } else {
+      open.sort((a, b) => (b.slug === hereSlug) - (a.slug === hereSlug) || dueKey(a).localeCompare(dueKey(b)) || a.slug.localeCompare(b.slug) || a.i - b.i);
+      open.forEach((t, idx) => {
+        t.displayIndex = idx + 1;
+        t.cardGroup = linkedCards[0] || null;
+      });
+      allGroupedOpen = open;
+    }
+    const list = allGroupedOpen;
     const done = doneToday;
     this.visible = [...list, ...done.slice(0, this.doneShown ?? 5)];
     const picks = this.picked();
@@ -2780,7 +2855,7 @@ export default class Todos extends View {
                 .child(
                   div().id(`num-${key}`).flex_none().text_size(10.5).font_family("JetBrains Mono").font_semibold()
                     .text_color(x.done ? t.dim : t.muted)
-                    .child(`#${x.i + 1}`)
+                    .child(`#${x.displayIndex ?? (x.i + 1)}`)
                 )
                 // Texto da tarefa - SEMPRE truncate, sem tremor no hover! Clique abre modal de detalhes
                 .child(editing
@@ -2963,7 +3038,7 @@ export default class Todos extends View {
             .child(div().id(`subtick-${key}-${si}`).size(13).flex_none().rounded(4).border_1().cursor_pointer().border_color(s.done ? t.ansi2 : t.muted)
               .when(s.done, (b) => b.bg(t.ansi2).flex().items_center().justify_center().child(svg("mods/workspace-chrome/check.svg").size(8).text_color(t.background)))
               // Número da subtask (#15.1, #15.2...)
-            .child(div().flex_none().text_size(9.5).font_family("JetBrains Mono").text_color(t.dim).child(`#${x.i + 1}.${si + 1}`))
+            .child(div().flex_none().text_size(9.5).font_family("JetBrains Mono").text_color(t.dim).child(`#${x.displayIndex ?? (x.i + 1)}.${si + 1}`))
             .on_click((_e, cx) => {
                 this.change(x.slug, (items) => items.map((it, j) => {
                   if (j === x.i) {
@@ -3032,6 +3107,71 @@ export default class Todos extends View {
       return res;
     };
 
+    const renderCardGroup = (grp) => {
+      return v_flex()
+        .id(`card-group-${grp.card}`)
+        .w_full()
+        .pt(6)
+        .pb(2)
+        .child(
+          h_flex()
+            .h(28)
+            .px(8)
+            .gap(6)
+            .items_center()
+            .rounded(6)
+            .bg(t.raised + "55")
+            .border_1()
+            .border_color(t.border)
+            .child(svg("mods/todos/tag.svg").size(12).text_color(t.ansi6))
+            .child(
+              div()
+                .font_bold()
+                .text_size(12)
+                .text_color(t.ansi6)
+                .child(`#${grp.card}`)
+            )
+            .child(
+              div()
+                .text_size(10.5)
+                .text_color(t.dim)
+                .child(`(${grp.tasks.length} ${grp.tasks.length === 1 ? "tarefa" : "tarefas"})`)
+            )
+            .child(div().flex_1())
+            .child(
+              h_flex()
+                .h(20)
+                .px(6)
+                .gap(3)
+                .items_center()
+                .rounded(4)
+                .bg(t.background)
+                .border_1()
+                .border_color(t.border)
+                .cursor_pointer()
+                .hover((s) => s.bg(t.hover))
+                .on_click((_e, cx) => {
+                  this.openCreateModal(cx);
+                  this.createGroupInput.set_value(grp.card);
+                })
+                .child(svg("mods/workspace-chrome/plus.svg").size(9).text_color(t.muted))
+                .child(div().text_size(10).font_medium().text_color(t.muted).child("Nova"))
+            )
+        )
+        .children(
+          grp.tasks.length > 0
+            ? grp.tasks.flatMap(withStarter)
+            : [
+                div()
+                  .px(10)
+                  .py(6)
+                  .text_size(11.5)
+                  .text_color(t.dim)
+                  .child(`Nenhuma tarefa aberta para #${grp.card}`),
+              ]
+        );
+    };
+
     // A project switch in the header: Log and Sync toggle buttons in standard size
     const toggle = (id, label, icon, on, tip, fn) => h_flex().id(`switch-${id}`).h(26).px(8).gap(5).flex_none().items_center().rounded(6).cursor_pointer()
       .border_1()
@@ -3071,29 +3211,36 @@ export default class Todos extends View {
         .child(
           h_flex().items_center().gap(8)
             .child(div().font_semibold().text_size(13).child("To-do"))
-            .when(Boolean(linkedCard), (b) =>
+            .when(linkedCards.length > 0, (b) =>
               b.child(
-                h_flex().id("btn-space-card-badge").h(24).px(8).rounded(6).cursor_pointer().items_center().gap(5)
-                  .bg(t.accent + "1f").border_1().border_color(t.accent + "55")
-                  .hover((s) => s.bg(t.accent + "33").border_color(t.accent))
-                  .tooltip("Card atribuído a este Space (clique para alterar)")
-                  .on_click((_e, _cx) => {
-                    const s = spaces().find((x) => x.active);
-                    if (s) {
-                      openOverlay({ mod: "space-card", kind: "dialog", width: 460, height: 420, props: { space: s.id, folder: s.folder } });
-                    }
-                  })
-                  .child(svg("mods/todos/star.svg").size(11).text_color(t.accent))
-                  .child(div().text_size(11.5).font_bold().text_color(t.accent).child(`#${linkedCard}`))
-                  .child(svg("mods/todos/tag.svg").size(10).text_color(t.accent + "aa"))
+                h_flex()
+                  .gap(5)
+                  .items_center()
+                  .children(
+                    linkedCards.map((c) =>
+                      h_flex().id(`btn-space-card-badge-${c}`).h(24).px(8).rounded(6).cursor_pointer().items_center().gap(5)
+                        .bg(t.accent + "1f").border_1().border_color(t.accent + "55")
+                        .hover((s) => s.bg(t.accent + "33").border_color(t.accent))
+                        .tooltip(`Card atribuído: #${c} (clique para gerenciar)`)
+                        .on_click((_e, _cx) => {
+                          const s = spaces().find((x) => x.active);
+                          if (s) {
+                            openOverlay({ mod: "space-card", kind: "dialog", width: 460, height: 420, props: { space: s.id, folder: s.folder } });
+                          }
+                        })
+                        .child(svg("mods/todos/star.svg").size(11).text_color(t.accent))
+                        .child(div().text_size(11.5).font_bold().text_color(t.accent).child(`#${c}`))
+                        .child(svg("mods/todos/tag.svg").size(10).text_color(t.accent + "aa"))
+                    )
+                  )
               )
             )
-            .when(!linkedCard, (b) =>
+            .when(linkedCards.length === 0, (b) =>
               b.child(
                 h_flex().id("btn-space-card-empty-badge").h(24).px(8).rounded(6).cursor_pointer().items_center().gap(5)
                   .bg(t.ansi3 + "1f").border_1().border_color(t.ansi3 + "55")
                   .hover((s) => s.bg(t.ansi3 + "33"))
-                  .tooltip("Clique para vincular um Card a este Space")
+                  .tooltip("Clique para vincular Cards a este Space")
                   .on_click((_e, _cx) => {
                     const s = spaces().find((x) => x.active);
                     if (s) {
@@ -3104,7 +3251,7 @@ export default class Todos extends View {
                   .child(div().text_size(11.5).font_semibold().text_color(t.ansi3).child("Sem Card"))
               )
             )
-            .when(Boolean(linkedCard), (b) =>
+            .when(linkedCards.length > 0, (b) =>
               b.child(div().px(5).py(1).rounded(4).border_1().border_color(t.border).text_size(10).text_color(t.muted).child(`${open.length} ${open.length === 1 ? "aberta" : "abertas"}`))
             )
         )
@@ -3150,7 +3297,7 @@ export default class Todos extends View {
       .child(
         v_flex().id("todo-scroll").flex_1().min_h(0).overflow_y_scrollbar().px(8).pb(8)
           // 1. If space has NO card linked: require assigning a card!
-          .when(!linkedCard, (el) =>
+          .when(linkedCards.length === 0, (el) =>
             el.child(
               v_flex().id("todo-unassigned-card-prompt").size_full().items_center().justify_center().py(48).px(20).gap(12)
                 .child(
@@ -3177,9 +3324,15 @@ export default class Todos extends View {
                 )
             )
           )
-          // 2. If space HAS a card linked:
-          .when(Boolean(linkedCard), (el) =>
-            el.children(list.flatMap(withStarter))
+          // 2. If space HAS card(s) linked:
+          .when(linkedCards.length > 0, (el) =>
+            el
+              .when(linkedCards.length > 1, (groupEl) =>
+                groupEl.children(cardGroups.map(renderCardGroup))
+              )
+              .when(linkedCards.length === 1, (singleEl) =>
+                singleEl.children(list.flatMap(withStarter))
+              )
               .when(!list.length && !done.length, (emptyEl) =>
                 emptyEl.child(
                   v_flex().size_full().items_center().justify_center().py(36).px(16).gap(10)
@@ -3188,7 +3341,7 @@ export default class Todos extends View {
                         .flex().items_center().justify_center()
                         .child(svg("mods/todos/star.svg").size(18).text_color(t.accent))
                     )
-                    .child(div().font_semibold().text_size(13).text_color(t.foreground).child(`Nenhuma tarefa para #${linkedCard}`))
+                    .child(div().font_semibold().text_size(13).text_color(t.foreground).child(`Nenhuma tarefa para ${linkedCards.map(c => "#" + c).join(", ")}`))
                     .child(div().text_size(11.5).text_color(t.dim).child("Crie a primeira tarefa deste Card"))
                     .child(
                       h_flex().h(28).px(12).rounded(6).cursor_pointer().items_center().gap(5)
@@ -3196,13 +3349,13 @@ export default class Todos extends View {
                         .hover((s) => s.bg(t.accent + "33"))
                         .on_click((_e, cx) => this.openCreateModal(cx))
                         .child(svg("mods/workspace-chrome/plus.svg").size(11).text_color(t.accent))
-                        .child(div().text_size(11.5).font_semibold().text_color(t.accent).child(`+ Nova Tarefa em #${linkedCard}`))
+                        .child(div().text_size(11.5).font_semibold().text_color(t.accent).child(`+ Nova Tarefa em #${linkedCards[0]}`))
                     )
                 )
               )
               .when(!list.length && done.length > 0, (emptyEl) =>
                 emptyEl.child(
-                  div().px(8).py(10).text_size(12).text_color(t.dim).child(`Todas as tarefas de #${linkedCard} foram concluídas!`)
+                  div().px(8).py(10).text_size(12).text_color(t.dim).child(`Todas as tarefas de ${linkedCards.map(c => "#" + c).join(", ")} foram concluídas!`)
                 )
               )
               .when(fromFile.items.length > 0, (fileEl) => fileEl
