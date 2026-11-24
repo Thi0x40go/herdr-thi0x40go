@@ -656,7 +656,7 @@ export default class Todos extends View {
     this.queueItems = [];
     cx.spawn(async (cx) => { await this.loadQueue(cx); });
     cx.timer.every(10000, (cx) => this.loadQueue(cx));
-    cx.timer.every(60000, (cx) => this.runQueueCron(cx));
+    cx.timer.every(20000, (cx) => this.runQueueCron(cx));
     this.subFor = null;
     this.subInput = InputState.new({ placeholder: "Add a subtask..." });
     this.subInput.on("submit", (_e, cx) => this.saveSub(cx));

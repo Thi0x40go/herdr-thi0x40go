@@ -1027,9 +1027,18 @@ def cmd_queue(args):
                     break
 
                 if st_state in ("idle", "done", "waiting"):
-                    # Check agent program filter if requested
-                    if item.get("agent") and item["agent"] not in (t_addr, t.get("name"), app, fg):
-                        continue
+                    # If an exact terminal was specified, match directly:
+                    if item_terminal and t_addr == item_terminal:
+                        candidate = t_addr
+                        break
+
+                    # Check agent program filter if requested (case-insensitive)
+                    item_ag = (item.get("agent") or "").strip().lower()
+                    if item_ag:
+                        match_ag = any(item_ag in val for val in (t_addr.lower(), (t.get("name") or "").lower(), app, fg) if val)
+                        if not match_ag:
+                            continue
+
                     # Prefer kiro or other autonomous agent over plain shell
                     if not candidate or "kiro" in app or "kiro" in fg or "antigravity" in app or "antigravity" in fg:
                         candidate = t_addr
