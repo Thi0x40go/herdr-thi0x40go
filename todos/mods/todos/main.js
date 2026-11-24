@@ -2239,7 +2239,7 @@ export default class Todos extends View {
                         .children(matchingCards.slice(0, 10).map((c) => {
                           const isPicked = currentGroup.toUpperCase() === c.toUpperCase();
                           return h_flex().id(`card-opt-${c}`).h(28).px(8).rounded(5).cursor_pointer().items_center().justify_between()
-                            .bg(isPicked ? t.ansi6 + "22" : "transparent")
+                            .bg(isPicked ? t.ansi6 + "22" : "#00000000")
                             .hover((s) => s.bg(t.hover))
                             .on_click((_e, cx) => {
                               this.createGroupInput.set_value(c);
@@ -2482,7 +2482,7 @@ export default class Todos extends View {
                 .items_center()
                 .rounded(5)
                 .cursor_pointer()
-                .bg(isPicked ? t.accent + "20" : "transparent")
+                .bg(isPicked ? t.accent + "20" : "#00000000")
                 .hover((s) => s.bg(isPicked ? t.accent + "2c" : t.hover))
                 .on_click((_e, cx) => {
                   if (effectiveCards.includes(c.name) && effectiveCards.length > 1) {
@@ -2601,9 +2601,9 @@ export default class Todos extends View {
         .items_center()
         .rounded(7)
         .cursor_pointer()
-        .bg(isSelected ? t.accent + "18" : "transparent")
+        .bg(isSelected ? t.accent + "18" : "#00000000")
         .border_1()
-        .border_color(isSelected ? t.accent + "44" : "transparent")
+        .border_color(isSelected ? t.accent + "44" : "#00000000")
         .hover((s) => s.bg(isSelected ? t.accent + "26" : t.hover))
         .on_click((_e, _cx) => toggleCard(c.name))
         .child(
