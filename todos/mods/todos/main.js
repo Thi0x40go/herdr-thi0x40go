@@ -2668,12 +2668,15 @@ export default class Todos extends View {
       const isExp = this.expanded?.has(key);
       const hasSubtasks = subTotal > 0;
       const repoName = x.meta?.repo || (x.folder ? this.name(x.folder) : "");
-      return h_flex().id(`todo-${key}`).min_h(36).px(10).py(4).gap(8).items_center().rounded(8)
+      const hasGroup = Boolean(x.group) && !x.text.toUpperCase().includes(x.group);
+      const hasInfo = Boolean(x.priority || hasGroup || repoName || hasSubtasks || meta);
+
+      return h_flex().id(`todo-${key}`).min_h(38).px(10).py(5).gap(8).items_start().rounded(8)
         .when(on, (el) => el.bg(t.accent + "38")).hover((s) => s.bg(on ? t.accent + "38" : t.hover))
         .on_click((e, cx) => { if (multi(e) && !editing && this.filter) this.pick(x, e, cx); })
         .on_hover((on, cx) => { this.hover = on ? key : this.hover === key ? null : this.hover; cx.notify(); })
-        // Checkbox pai
-        .child(div().id(`tick-${key}`).size(16).flex_none().rounded(6).border(1.5).cursor_pointer().border_color(x.done ? t.ansi2 : c)
+        // Checkbox pai (alinhado no topo da tarefa)
+        .child(div().id(`tick-${key}`).size(16).mt(2).flex_none().rounded(6).border(1.5).cursor_pointer().border_color(x.done ? t.ansi2 : c)
           .when(x.done, (el) => el.bg(t.ansi2).flex().items_center().justify_center().child(svg("mods/workspace-chrome/check.svg").size(10).text_color(t.background)))
           .on_click((e, cx) => {
             if (multi(e) && this.filter) return;
@@ -2681,95 +2684,99 @@ export default class Todos extends View {
             cross(x.folder, x.done ? "undo" : "done", x.text);
             this.fileAt[x.folder] = 0;
           }))
-        // Número da tarefa (#1, #2, #15...)
+        // Conteúdo em 2 linhas responsivo
         .child(
-          div().id(`num-${key}`).flex_none().text_size(10.5).font_family("JetBrains Mono").font_semibold()
-            .text_color(x.done ? t.dim : t.muted)
-            .child(`#${x.i + 1}`)
-        )
-        // Prioridade do pai
-        .when(Boolean(x.priority) && !editing, (el) => el.child(
-          div().px(6).py(1).rounded(9999).border_1().border_color(prioColor + "44").bg(prioColor + "14")
-            .text_size(10).font_semibold().text_color(prioColor).cursor_pointer()
-            .hover((st) => st.bg(prioColor + "28"))
-            .tooltip(`Prioridade: ${x.priority} (clique para alternar)`)
-            .on_click((_e, cx) => this.cycleTaskPrio(key, cx))
-            .child(x.priority)
-        ))
-        // Card / Grupo
-        .when(Boolean(x.group) && !editing && !x.text.toUpperCase().includes(x.group), (el) => el.child(
-          div().px(6).py(1).rounded(9999).bg(t.ansi6 + "18").border_1().border_color(t.ansi6 + "44")
-            .text_size(10).font_semibold().text_color(t.ansi6).child(`#${x.group}`)
-        ))
-        // Repositório / Projeto pill
-        .when(Boolean(repoName) && !editing, (el) => el.child(
-          div().id(`repo-${key}`).px(6).py(1).rounded(9999)
-            .border_1().border_color(c + "44").bg(c + "18")
-            .text_size(9.5).font_semibold().text_color(c)
-            .tooltip(`Repositório: ${repoName} (${x.folder || ""})`)
-            .child(repoName)
-        ))
-        // Desc pill indicator (badge discreto indicando specs/detalhes)
-        .when(Boolean(x.description) && !editing, (el) => el.child(
-          div().px(5).py(1).rounded(4).bg(t.accent + "18").border_1().border_color(t.accent + "33")
-            .text_size(9.5).font_medium().text_color(t.accent).cursor_pointer()
-            .tooltip("Possui detalhes / especificações (clique para ver)")
-            .on_click((e, cx) => { cx.stop_propagation(); this.openDetailModal(x, cx); })
-            .child("desc")
-        ))
-        // Accordion chevron badge de subtasks
-        .when(hasSubtasks && !editing, (el) => el.child(
-          h_flex().id(`exp-${key}`).h(20).px(5).gap(3).items_center().rounded(5).bg(t.raised).cursor_pointer()
-            .border_1().border_color(t.border)
-            .hover((st) => st.bg(t.hover).border_color(t.accent))
-            .tooltip(isExp ? "Recolher subtarefas" : "Expandir subtarefas")
-            .on_click((_e, cx) => { cx.stop_propagation(); this.toggleExpand(key, cx); })
-            .child(svg(`mods/workspace-chrome/chevron-${isExp ? "down" : "right"}.svg`).size(8).text_color(t.muted))
-            .child(div().text_size(10).font_semibold().text_color(subDone === subTotal ? t.ansi2 : t.muted).child(`${subDone}/${subTotal}`))
-        ))
-        // Texto da tarefa - SEMPRE truncate, sem tremor no hover! Clique abre modal de detalhes
-        .child(editing
-          ? Input.new(this.editInput).flex_1().h(28).px(8).rounded(6).border_1().border_color(t.accent).bg(t.background).text_size(13).text_color(t.foreground)
-          : div().id(`text-${key}`).flex_1().min_w(0).text_size(13).line_height("19px").text_color(x.done ? t.dim : t.foreground).when(x.done, (el) => el.line_through())
-            .truncate().cursor_pointer()
-            .tooltip(x.text.length > 40 ? x.text : "Clique para ver detalhes")
-            .on_click((e, cx) => {
-              if (e.click_count === 2 && !multi(e)) {
-                this.editing = { slug: x.slug, i: x.i };
-                this.editInput.set_value(x.text + (x.due ? ` @${fmtDate(new Date(`${x.due.split(" ")[0]}T00:00:00`))}${x.due.includes(" ") ? ` ${fmtTime(x.due.split(" ")[1])}` : ""}` : ""));
-                this.editInput.focus();
-                cx.notify();
-              } else if (!multi(e)) {
-                this.openDetailModal(x, cx);
-              }
-            })
-            .child(x.text))
-        // Metadados (data / vencimento)
-        .when(Boolean(meta) && !editing, (el) => el.child(div().flex_none().text_size(11).text_color(!x.done && overdue(x.due) ? t.ansi1 : t.dim).child(meta)))
-        // Nome da pasta / projeto
-        .when(!this.filter && !editing, (el) => el.child(div().flex_none().max_w(100).truncate().text_right().text_size(11).text_color(c).child(this.name(x.folder))))
-        // Acoes discretas no hover
-        .when(hovered && !editing, (el) => el.child(
-          h_flex().id(`actions-${key}`).gap(2).items_center().flex_none()
-            .child(div().id(`act-modal-${key}`).size(22).flex().items_center().justify_center().rounded(5).cursor_pointer()
-              .hover((s) => s.bg(t.accent + "22")).tooltip("Ver detalhes da tarefa (↗)")
-              .on_click((_e, cx) => this.openDetailModal(x, cx))
-              .child(svg("mods/todos/arrow-up-right.svg").size(12).text_color(t.accent)))
-            .when(this.agentChoices.length > 0 && !x.done, (el) => el.child(
-              div().id(`start-${key}`).size(22).flex().items_center().justify_center().rounded(5).cursor_pointer()
-                .when(this.startFor === key, (el) => el.bg(t.selected))
-                .hover((s) => s.bg(t.raised)).tooltip("Executar agente")
-                .on_click((_e, cx) => { this.pickOpen = false; this.startFor = this.startFor === key ? null : key; cx.notify(); })
-                .child(svg("mods/todos/bot.svg").size(11).text_color(t.muted))
+          v_flex().flex_1().min_w(0).gap(3)
+            // Linha 1: Número da tarefa (#X), Texto e Ações de hover
+            .child(
+              h_flex().w_full().items_center().gap(6)
+                // Número da tarefa (#1, #2, #15...)
+                .child(
+                  div().id(`num-${key}`).flex_none().text_size(10.5).font_family("JetBrains Mono").font_semibold()
+                    .text_color(x.done ? t.dim : t.muted)
+                    .child(`#${x.i + 1}`)
+                )
+                // Texto da tarefa - SEMPRE truncate, sem tremor no hover! Clique abre modal de detalhes
+                .child(editing
+                  ? Input.new(this.editInput).flex_1().h(26).px(8).rounded(6).border_1().border_color(t.accent).bg(t.background).text_size(13).text_color(t.foreground)
+                  : div().id(`text-${key}`).flex_1().min_w(0).text_size(13).line_height("18px").text_color(x.done ? t.dim : t.foreground).when(x.done, (el) => el.line_through())
+                    .truncate().cursor_pointer()
+                    .tooltip(x.text.length > 40 ? x.text : "Clique para ver detalhes")
+                    .on_click((e, cx) => {
+                      if (e.click_count === 2 && !multi(e)) {
+                        this.editing = { slug: x.slug, i: x.i };
+                        this.editInput.set_value(x.text + (x.due ? ` @${fmtDate(new Date(`${x.due.split(" ")[0]}T00:00:00`))}${x.due.includes(" ") ? ` ${fmtTime(x.due.split(" ")[1])}` : ""}` : ""));
+                        this.editInput.focus();
+                        cx.notify();
+                      } else if (!multi(e)) {
+                        this.openDetailModal(x, cx);
+                      }
+                    })
+                    .child(x.text))
+                // Acoes discretas no hover
+                .when(hovered && !editing, (el) => el.child(
+                  h_flex().id(`actions-${key}`).gap(2).items_center().flex_none()
+                    .child(div().id(`act-modal-${key}`).size(20).flex().items_center().justify_center().rounded(5).cursor_pointer()
+                      .hover((s) => s.bg(t.accent + "22")).tooltip("Ver detalhes da tarefa (↗)")
+                      .on_click((_e, cx) => this.openDetailModal(x, cx))
+                      .child(svg("mods/todos/arrow-up-right.svg").size(12).text_color(t.accent)))
+                    .when(this.agentChoices.length > 0 && !x.done, (el) => el.child(
+                      div().id(`start-${key}`).size(20).flex().items_center().justify_center().rounded(5).cursor_pointer()
+                        .when(this.startFor === key, (el) => el.bg(t.selected))
+                        .hover((s) => s.bg(t.raised)).tooltip("Executar agente")
+                        .on_click((_e, cx) => { this.pickOpen = false; this.startFor = this.startFor === key ? null : key; cx.notify(); })
+                        .child(svg("mods/todos/bot.svg").size(11).text_color(t.muted))
+                    ))
+                    .child(div().id(`del-${key}`).size(20).flex().items_center().justify_center().rounded(5).cursor_pointer()
+                      .hover((s) => s.bg(t.raised)).tooltip("Excluir tarefa")
+                      .on_click((_e, cx) => {
+                        this.change(x.slug, (items) => items.filter((_, j) => j !== x.i), cx);
+                        toFile(x.folder, "rm", x.text);
+                      })
+                      .child(svg("mods/workspace-chrome/x.svg").size(10).text_color(t.muted)))
+                ))
+            )
+            // Linha 2: Informações distribuídas embaixo em pills responsivas
+            .when(hasInfo && !editing, (infoRow) => infoRow.child(
+              h_flex().w_full().items_center().gap(5).flex_wrap().pt(1)
+                // Prioridade do pai
+                .when(Boolean(x.priority), (el) => el.child(
+                  div().px(6).py(1).rounded(9999).border_1().border_color(prioColor + "44").bg(prioColor + "14")
+                    .text_size(9.5).font_semibold().text_color(prioColor).cursor_pointer()
+                    .hover((st) => st.bg(prioColor + "28"))
+                    .tooltip(`Prioridade: ${x.priority} (clique para alternar)`)
+                    .on_click((_e, cx) => this.cycleTaskPrio(key, cx))
+                    .child(x.priority)
+                ))
+                // Card / Grupo
+                .when(Boolean(hasGroup), (el) => el.child(
+                  div().px(6).py(1).rounded(9999).bg(t.ansi6 + "18").border_1().border_color(t.ansi6 + "44")
+                    .text_size(9.5).font_semibold().text_color(t.ansi6).child(`#${x.group}`)
+                ))
+                // Repositório / Projeto pill
+                .when(Boolean(repoName), (el) => el.child(
+                  div().id(`repo-${key}`).px(6).py(1).rounded(9999)
+                    .border_1().border_color(c + "44").bg(c + "18")
+                    .text_size(9.5).font_semibold().text_color(c)
+                    .tooltip(`Repositório: ${repoName} (${x.folder || ""})`)
+                    .child(repoName)
+                ))
+                // Accordion chevron badge de subtasks
+                .when(hasSubtasks, (el) => el.child(
+                  h_flex().id(`exp-${key}`).h(18).px(5).gap(3).items_center().rounded(5).bg(t.raised).cursor_pointer()
+                    .border_1().border_color(t.border)
+                    .hover((st) => st.bg(t.hover).border_color(t.accent))
+                    .tooltip(isExp ? "Recolher subtarefas" : "Expandir subtarefas")
+                    .on_click((_e, cx) => { cx.stop_propagation(); this.toggleExpand(key, cx); })
+                    .child(svg(`mods/workspace-chrome/chevron-${isExp ? "down" : "right"}.svg`).size(7).text_color(t.muted))
+                    .child(div().text_size(9.5).font_semibold().text_color(subDone === subTotal ? t.ansi2 : t.muted).child(`${subDone}/${subTotal}`))
+                ))
+                // Metadados (data / vencimento)
+                .when(Boolean(meta), (el) => el.child(
+                  div().flex_none().text_size(10).text_color(!x.done && overdue(x.due) ? t.ansi1 : t.dim).child(meta)
+                ))
             ))
-            .child(div().id(`del-${key}`).size(22).flex().items_center().justify_center().rounded(5).cursor_pointer()
-              .hover((s) => s.bg(t.raised)).tooltip("Excluir tarefa")
-              .on_click((_e, cx) => {
-                this.change(x.slug, (items) => items.filter((_, j) => j !== x.i), cx);
-                toFile(x.folder, "rm", x.text);
-              })
-              .child(svg("mods/workspace-chrome/x.svg").size(10).text_color(t.muted)))
-        ));
+        );
     };
     // A section, as the sidebar's Parked: a chevron that folds it, its name and
     // count, and an action on the right.
