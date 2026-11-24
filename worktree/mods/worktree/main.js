@@ -14,6 +14,8 @@ import {
   exec,
   home,
   notify,
+  shared,
+  setShared,
 } from "herdr";
 import CONFIG from "./config.js";
 
@@ -440,7 +442,19 @@ export default class OrchestratorWt extends View {
     if (existing) {
       run("space.select", { id: existing.id });
     } else {
-      run("space.new", { folder: wt.path });
+      const detectCard = (str) => {
+        const m = /\b(CARD|EVAH|TASK|PROJ|ISSUE)[-_ ]?([0-9]+)\b/i.exec(str || "");
+        return m ? `${m[1].toUpperCase()}-${m[2]}` : null;
+      };
+      const card = detectCard(wt.branch) || detectCard(wt.path);
+      const spaceName = card ? `${card} - ${wt.repo || wt.path.split("/").pop()}` : (wt.branch || wt.path.split("/").pop());
+      run("space.new", { folder: wt.path, name: spaceName });
+      if (card) {
+        const sc = shared("spaces.cards") ?? { spaces: {}, folders: {} };
+        sc.folders = sc.folders ?? {};
+        sc.folders[wt.path] = card;
+        setShared("spaces.cards", sc);
+      }
     }
   }
 
@@ -600,9 +614,18 @@ export default class OrchestratorWt extends View {
             throw new Error(parsed.message || r.stderr || "Falha ao criar worktree");
           }
           const wtPath = parsed.data?.worktree_path;
+          if (wtPath) {
+            // Auto-copia arquivos de ambiente (.env) do repositório base para a worktree
+            const mainRepoDir = `${this.orchHome}/repos/${repo}`;
+            const envFiles = [".env", ".env.local", ".env.development", ".env.test"];
+            for (const ef of envFiles) {
+              await exec("sh", ["-c", `[ -f "${mainRepoDir}/${ef}" ] && cp -n "${mainRepoDir}/${ef}" "${wtPath}/${ef}" || true`]).catch(() => null);
+            }
+          }
+
           notify({
             title: "Worktree Criada (Orchestrator)",
-            body: `${repo} (${branch}) criado em ~/orchestrator/worktrees.`,
+            body: `${repo} (${branch}) criado em ~/orchestrator/worktrees com .env sincronizado.`,
             level: "success",
             timeout: 5000,
           });
@@ -612,7 +635,19 @@ export default class OrchestratorWt extends View {
           this.newBranch = "";
           this.close();
           if (wtPath) {
-            run("space.new", { folder: wtPath });
+            const detectCard = (str) => {
+              const m = /\b(CARD|EVAH|TASK|PROJ|ISSUE)[-_ ]?([0-9]+)\b/i.exec(str || "");
+              return m ? `${m[1].toUpperCase()}-${m[2]}` : null;
+            };
+            const card = detectCard(branch) || detectCard(wtPath);
+            const spaceName = card ? `${card} - ${repo}` : `${repo} (${branch})`;
+            run("space.new", { folder: wtPath, name: spaceName });
+            if (card) {
+              const sc = shared("spaces.cards") ?? { spaces: {}, folders: {} };
+              sc.folders = sc.folders ?? {};
+              sc.folders[wtPath] = card;
+              setShared("spaces.cards", sc);
+            }
           }
         } else {
           // Criação via Herdr (~/.herdr/worktrees)
@@ -636,9 +671,15 @@ export default class OrchestratorWt extends View {
             throw new Error(addRes.stderr || addRes.stdout || "Erro no git worktree add");
           }
 
+          // Auto-copia arquivos de ambiente (.env)
+          const envFiles = [".env", ".env.local", ".env.development", ".env.test"];
+          for (const ef of envFiles) {
+            await exec("sh", ["-c", `[ -f "${mainRepoDir}/${ef}" ] && cp -n "${mainRepoDir}/${ef}" "${targetDir}/${ef}" || true`]).catch(() => null);
+          }
+
           notify({
             title: "Worktree Criada (Herdr HC)",
-            body: `${repo} (${branch}) criado em ~/.herdr/worktrees.`,
+            body: `${repo} (${branch}) criado em ~/.herdr/worktrees com .env sincronizado.`,
             level: "success",
             timeout: 5000,
           });
@@ -647,7 +688,20 @@ export default class OrchestratorWt extends View {
           this.branchInput.set_value("");
           this.newBranch = "";
           this.close();
-          run("space.new", { folder: targetDir });
+
+          const detectCard = (str) => {
+            const m = /\b(CARD|EVAH|TASK|PROJ|ISSUE)[-_ ]?([0-9]+)\b/i.exec(str || "");
+            return m ? `${m[1].toUpperCase()}-${m[2]}` : null;
+          };
+          const card = detectCard(branch) || detectCard(targetDir);
+          const spaceName = card ? `${card} - ${repo}` : `${repo} (${branch})`;
+          run("space.new", { folder: targetDir, name: spaceName });
+          if (card) {
+            const sc = shared("spaces.cards") ?? { spaces: {}, folders: {} };
+            sc.folders = sc.folders ?? {};
+            sc.folders[targetDir] = card;
+            setShared("spaces.cards", sc);
+          }
         }
       } catch (err) {
         this.createBusy = false;
