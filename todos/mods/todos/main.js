@@ -1367,9 +1367,35 @@ export default class Todos extends View {
 
   async enqueueTask(task, cx) {
     if (!task) return;
-    const folder = task.folder || this.lists[task.slug]?.folder || this.here;
-    await exec("todo", ["-p", folder, "queue", "add", task.text]).catch(async () => {
-      await python([`${appHome()}/mods/todos/todo_engine.py`, "-p", folder, "queue", "add", task.text]).catch(() => null);
+    const activeSpace = spaces().find((s) => s.active);
+    const spaceId = activeSpace?.id;
+    const spaceName = activeSpace?.name;
+    const folder = task.folder || this.lists[task.slug]?.folder || activeSpace?.folder || this.here;
+
+    // Find agent/kiro terminal specifically in this active Space
+    const allAgents = (typeof agents === "function" ? agents() : []) || [];
+    const ps = (typeof panes === "function" ? panes() : []) || [];
+    const spaceTabIds = new Set((activeSpace?.tabs ?? []).map((t) => t.id));
+
+    const spaceAgents = allAgents.filter((a) => {
+      const pane = ps.find((p) => p.terminal === a.address);
+      if (pane && spaceTabIds.has(pane.tab)) return true;
+      if (spaceId && (a.space === spaceId || a.space_id === spaceId)) return true;
+      if (spaceName && a.space_name === spaceName) return true;
+      return false;
+    });
+
+    const spaceTerminals = ps.filter((p) => spaceTabIds.has(p.tab) && p.terminal).map((p) => p.terminal);
+    const targetAddr = spaceAgents[0]?.address || spaceTerminals[0] || null;
+
+    const cmdArgs = ["-p", folder, "queue", "add", task.text];
+    if (spaceId) cmdArgs.push("--space", spaceId);
+    if (spaceName) cmdArgs.push("--space-name", spaceName);
+    if (targetAddr) cmdArgs.push("--terminal", targetAddr);
+    if (spaceAgents[0]?.program?.name) cmdArgs.push("--agent", spaceAgents[0].program.name);
+
+    await exec("todo", cmdArgs).catch(async () => {
+      await python([`${appHome()}/mods/todos/todo_engine.py`, ...cmdArgs]).catch(() => null);
     });
     await this.loadQueue(cx);
     if (cx) cx.notify();

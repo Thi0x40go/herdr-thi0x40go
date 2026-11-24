@@ -817,9 +817,12 @@ def cmd_queue(args):
             prio_str = f" {format_priority(prio)}" if prio else ""
             repo = it.get("repo") or (it.get("folder", "").split("/")[-1] if it.get("folder") else "")
             repo_str = f" {CLR_CYAN}({repo}){CLR_RESET}" if repo else ""
-            agent_str = f" {CLR_BOLD}@{it.get('dispatched_to')}{CLR_RESET}" if it.get("dispatched_to") else ""
+            space_lbl = it.get("space_name") or (it.get("space_id")[:8] if it.get("space_id") else "")
+            space_str = f" {CLR_BLUE}[{space_lbl}]{CLR_RESET}" if space_lbl else ""
+            target_term = it.get("terminal") or it.get("dispatched_to")
+            agent_str = f" {CLR_BOLD}@{target_term}{CLR_RESET}" if target_term else ""
 
-            print(f"{i:2d}. {st_badge}{prio_str} {it.get('text', '')}{repo_str}{agent_str}")
+            print(f"{i:2d}. {st_badge}{prio_str} {it.get('text', '')}{repo_str}{space_str}{agent_str}")
             if it.get("description"):
                 lines = it["description"].strip().split("\n")
                 first = lines[0][:80]
@@ -864,6 +867,34 @@ def cmd_queue(args):
             item_text = target
 
         now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        target_space_id = getattr(args, "space", None)
+        target_space_name = getattr(args, "space_name", None)
+        target_terminal = getattr(args, "terminal", None)
+        target_agent = getattr(args, "agent", None)
+
+        hc_id = os.environ.get("HC_TERMINAL_ID")
+        if hc_id and not (target_space_id and target_terminal):
+            try:
+                term_path = Path(os.path.expanduser("~/.local/state/herdr-core/default/terminals.json"))
+                if term_path.is_file():
+                    with open(term_path, "r", encoding="utf-8") as tf:
+                        tdata = json.load(tf)
+                    for _, tt in tdata.get("terminals", {}).items():
+                        if tt.get("address") == hc_id:
+                            if not target_terminal:
+                                target_terminal = hc_id
+                            if not target_space_id:
+                                target_space_id = (tt.get("labels") or {}).get("herdr.space")
+                            if not target_space_name:
+                                where_lbl = (tt.get("labels") or {}).get("where") or ""
+                                target_space_name = where_lbl.split(" / ")[0] if where_lbl else None
+                            if not target_agent:
+                                target_agent = (tt.get("status") or {}).get("app") or (tt.get("foreground") or {}).get("name")
+                            break
+            except Exception:
+                pass
+
         q_item = {
             "id": f"q-{int(datetime.now().timestamp()*1000)}",
             "text": item_text,
@@ -871,10 +902,13 @@ def cmd_queue(args):
             "priority": item_prio,
             "folder": p.folder or folder,
             "repo": item_repo,
+            "space_id": target_space_id,
+            "space_name": target_space_name,
+            "terminal": target_terminal,
+            "agent": target_agent,
             "description": item_desc,
             "subtasks": item_subs,
             "status": "queued",
-            "agent": getattr(args, "agent", None),
             "created_at": now_str,
             "dispatched_at": None,
             "dispatched_to": None,
@@ -882,7 +916,8 @@ def cmd_queue(args):
         queue.setdefault("items", []).append(q_item)
         save_queue(queue)
         print(f"{CLR_GREEN}Tarefa enfileirada com sucesso!{CLR_RESET}")
-        print(f"  {CLR_BOLD}#{len(queue['items'])}:{CLR_RESET} {item_text} ({item_repo})")
+        target_info = f" -> {target_space_name or target_space_id or ''} (@{target_terminal})" if (target_space_name or target_terminal) else ""
+        print(f"  {CLR_BOLD}#{len(queue['items'])}:{CLR_RESET} {item_text} ({item_repo}){target_info}")
         return
 
     if action in ("rm", "delete"):
@@ -934,84 +969,124 @@ def cmd_queue(args):
         now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
         for item in queued_items:
+            item_space_id = item.get("space_id")
+            item_space_name = (item.get("space_name") or "").strip().upper()
+            item_terminal = item.get("terminal")
+            item_group = (item.get("group") or "").strip().upper()
             item_folder = (item.get("folder") or "").rstrip("/")
-            candidate = None
+
+            # 1. Collect candidate terminals strictly for this Space / context
+            space_terminals = []
 
             for tid, t in terminals.items():
                 if not isinstance(t, dict):
                     continue
                 if t.get("state") != "live":
                     continue
-                st = t.get("status") or {}
-                if not isinstance(st, dict):
-                    continue
-                st_state = (st.get("state") or "").lower()
-                if st_state not in ("idle", "done", "waiting"):
-                    continue
 
-                t_cwd = (t.get("cwd") or "").rstrip("/")
                 t_addr = t.get("address") or f"t{tid}"
                 labels = t.get("labels") or {}
+                t_space = labels.get("herdr.space")
                 t_where = (labels.get("where") or "").upper()
-                t_agent = (st.get("app") or t.get("name") or "").lower()
+                t_cwd = (t.get("cwd") or "").rstrip("/")
 
-                if item.get("agent") and item["agent"] not in (t_addr, t.get("name"), t_agent):
-                    continue
+                matched = False
+                if item_terminal and t_addr == item_terminal:
+                    matched = True
+                elif item_space_id and t_space == item_space_id:
+                    matched = True
+                elif item_space_name and (item_space_name in t_where or t_where.startswith(item_space_name)):
+                    matched = True
+                elif item_group and item_group in t_where:
+                    matched = True
+                elif not item_space_id and not item_space_name and not item_terminal and not item_group:
+                    # Strict folder match only when no space info was recorded
+                    if item_folder and t_cwd == item_folder:
+                        matched = True
 
-                item_group = (item.get("group") or "").upper()
-                if item_group and item_group in t_where:
-                    candidate = t_addr
+                if matched:
+                    space_terminals.append((t_addr, t))
+
+            if not space_terminals:
+                # No terminal in this space exists or is live right now - keep in queue and wait
+                continue
+
+            # 2. Check if any agent in this target space is actively WORKING
+            is_space_working = False
+            candidate = None
+
+            for t_addr, t in space_terminals:
+                st = t.get("status") or {}
+                st_state = (st.get("state") or "").lower()
+                fg = ((t.get("foreground") or {}).get("name") or "").lower()
+                app = ((st.get("app") or "")).lower()
+
+                # If Kiro/agent in this space is currently running a turn, wait!
+                if st_state == "working":
+                    is_space_working = True
                     break
-                if item_folder and (t_cwd == item_folder or t_cwd.startswith(item_folder + "/")):
-                    candidate = t_addr
-                    break
-                elif not candidate:
-                    candidate = t_addr
 
-            if candidate:
-                prompt_lines = [
-                    f"Trabalhe nesta tarefa da fila do projeto:",
-                    f"**{item.get('text')}**",
-                ]
-                if item.get("description"):
-                    prompt_lines.append(f"\nEspecificações / Detalhes:\n{item['description']}")
-                if item.get("subtasks"):
-                    prompt_lines.append("\nSubtarefas:")
-                    for sub in item["subtasks"]:
-                        prompt_lines.append(f"- [ ] {sub}")
-                prompt_lines.append(f"\nAo concluir tudo, marque como finalizada executando: `todo done \"{item.get('text')}\"`")
+                if st_state in ("idle", "done", "waiting"):
+                    # Check agent program filter if requested
+                    if item.get("agent") and item["agent"] not in (t_addr, t.get("name"), app, fg):
+                        continue
+                    # Prefer kiro or other autonomous agent over plain shell
+                    if not candidate or "kiro" in app or "kiro" in fg or "antigravity" in app or "antigravity" in fg:
+                        candidate = t_addr
 
-                prompt_text = "\n".join(prompt_lines)
+            if is_space_working:
+                # The agent in this space is still busy working on its current turn.
+                # NEVER dispatch to another space! Wait until this agent becomes idle.
+                continue
 
-                import subprocess
-                try:
-                    res = subprocess.run(
-                        ["herdr-core", "send", "--if", "idle", candidate, prompt_text],
+            if not candidate:
+                # Target agent in this space is not idle/ready yet. Wait!
+                continue
+
+            # 3. Target is ready and in the exact current space!
+            prompt_lines = [
+                f"Trabalhe nesta tarefa da fila do projeto:",
+                f"**{item.get('text')}**",
+            ]
+            if item.get("description"):
+                prompt_lines.append(f"\nEspecificações / Detalhes:\n{item['description']}")
+            if item.get("subtasks"):
+                prompt_lines.append("\nSubtarefas:")
+                for sub in item["subtasks"]:
+                    prompt_lines.append(f"- [ ] {sub}")
+            prompt_lines.append(f"\nAo concluir tudo, marque como finalizada executando: `todo done \"{item.get('text')}\"`")
+
+            prompt_text = "\n".join(prompt_lines)
+
+            import subprocess
+            try:
+                res = subprocess.run(
+                    ["herdr-core", "send", "--if", "idle", candidate, prompt_text],
+                    capture_output=True,
+                    text=True,
+                    timeout=15
+                )
+                if res.returncode == 0:
+                    item["status"] = "dispatched"
+                    item["dispatched_at"] = now_str
+                    item["dispatched_to"] = candidate
+                    dispatched_count += 1
+                    print(f"[{now_str}] Disparada tarefa '{item['text']}' para terminal {candidate} no space {item.get('space_name') or item_space_id or ''}")
+                else:
+                    res2 = subprocess.run(
+                        ["herdr-core", "send", candidate, prompt_text],
                         capture_output=True,
                         text=True,
                         timeout=15
                     )
-                    if res.returncode == 0:
+                    if res2.returncode == 0:
                         item["status"] = "dispatched"
                         item["dispatched_at"] = now_str
                         item["dispatched_to"] = candidate
                         dispatched_count += 1
-                        print(f"[{now_str}] Disparada tarefa '{item['text']}' para terminal {candidate}")
-                    else:
-                        res2 = subprocess.run(
-                            ["herdr-core", "send", candidate, prompt_text],
-                            capture_output=True,
-                            text=True,
-                            timeout=15
-                        )
-                        if res2.returncode == 0:
-                            item["status"] = "dispatched"
-                            item["dispatched_at"] = now_str
-                            item["dispatched_to"] = candidate
-                            dispatched_count += 1
-                            print(f"[{now_str}] Disparada tarefa '{item['text']}' para terminal {candidate}")
-                except Exception as e:
-                    print(f"Erro disparando para {candidate}: {e}", file=sys.stderr)
+                        print(f"[{now_str}] Disparada tarefa '{item['text']}' para terminal {candidate} no space {item.get('space_name') or item_space_id or ''}")
+            except Exception as e:
+                print(f"Erro disparando para {candidate}: {e}", file=sys.stderr)
 
         if dispatched_count > 0:
             save_queue(queue)
@@ -1088,6 +1163,9 @@ def main():
     p_queue = subparsers.add_parser("queue")
     p_queue.add_argument("action", nargs="?", default="list", help="Action (list, add, rm, clear, cron, json)")
     p_queue.add_argument("target", nargs="?", help="Task number, text, or queue index")
+    p_queue.add_argument("--space", help="Target space ID")
+    p_queue.add_argument("--space-name", help="Target space display name")
+    p_queue.add_argument("--terminal", help="Target terminal address (e.g. t65)")
     p_queue.add_argument("--agent", help="Specific agent or terminal target (e.g. t15, kiro-cli)")
 
     args = parser.parse_args()
