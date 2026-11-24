@@ -2377,22 +2377,33 @@ export default class Todos extends View {
     const isCustom = this.customCardFilter !== null;
 
     return div()
-      .id("card-dropdown-popover")
+      .id("card-dropdown-backdrop")
       .absolute()
-      .top(40)
-      .left(14)
-      .w(340)
-      .max_h(400)
-      .rounded(8)
-      .border_1()
-      .border_color(t.border)
-      .bg(t.popover)
-      .shadow_lg()
-      .z_index(50)
-      .flex()
-      .flex_col()
-      .overflow_hidden()
-      // Top search input
+      .inset_0()
+      .on_click((_e, cx) => {
+        this.cardDropdownOpen = false;
+        cx.notify();
+      })
+      .child(
+        div()
+          .id("card-dropdown-popover")
+          .absolute()
+          .top(44)
+          .left(14)
+          .w(340)
+          .max_h(400)
+          .rounded(8)
+          .border_1()
+          .border_color(t.border)
+          .bg(t.popover)
+          .shadow_lg()
+          .flex()
+          .flex_col()
+          .overflow_hidden()
+          .on_click((_e, cx) => {
+            cx.stop_propagation();
+          })
+          // Top search input
       .child(
         h_flex()
           .p(8)
@@ -2533,7 +2544,8 @@ export default class Todos extends View {
               .child(div().text_size(11).font_medium().text_color(t.foreground).child("Gerenciador completo de Cards...")),
           )
           .child(svg("mods/todos/arrow-up-right.svg").size(11).text_color(t.accent)),
-      );
+      ),
+    );
   }
 
   renderCardFilterModal(t, cx) {
@@ -4084,10 +4096,6 @@ export default class Todos extends View {
             ),
         ),
       )
-      // Dropdown Popover
-      .when(Boolean(this.cardDropdownOpen), (el) =>
-        el.child(this.renderCardDropdown(t, cx, activeSpace, linkedCards)),
-      )
       // Agents don't know about the lists yet: one click sets them up.
       .when(!this.ruleOk, (el) => el.child(h_flex().id("todo-setup").mx(8).mb(4).px(10).py(6).gap(8).items_center().rounded(8).cursor_pointer()
         .bg(t.accent + "1f").hover((s) => s.bg(t.accent + "33")).text_size(12).text_color(t.foreground)
@@ -4205,6 +4213,7 @@ export default class Todos extends View {
           )
         )
       )
+      .when(Boolean(this.cardDropdownOpen), (el) => el.child(this.renderCardDropdown(t, cx, activeSpace, linkedCards)))
       .when(Boolean(this.showCardFilterModal), (el) => el.child(this.renderCardFilterModal(t, cx)))
       .when(Boolean(this.showCreateModal), (el) => el.child(this.renderCreateModal(t, cx)))
       .when(Boolean(!this.showCreateModal && !this.showCardFilterModal && this.detailTask && this.lists[this.detailTask.slug]?.items?.[this.detailTask.i]), (el) => el.child(this.renderDetailModal(t, cx)));
