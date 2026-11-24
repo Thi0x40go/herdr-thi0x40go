@@ -688,6 +688,7 @@ export default class Todos extends View {
       rows: 10
     });
     this.modalGroupInput = InputState.new({ placeholder: "CARD-XXXX..." });
+    this.modalRepoInput = InputState.new({ placeholder: "Nome do repositório ou caminho..." });
     this.modalSubInput = InputState.new({ placeholder: "Adicionar subtarefa..." });
     this.modalTagInput = InputState.new({ placeholder: "Adicionar tag..." });
     this.modalLinkNameInput = InputState.new({ placeholder: "Rótulo (MR, PRD...)" });
@@ -697,6 +698,7 @@ export default class Todos extends View {
     this.modalTitleInput.on("submit", (_e, cx) => this.saveModalTitle(cx));
     this.modalDescInput.on("submit", (_e, cx) => this.saveModalDesc(cx));
     this.modalGroupInput.on("submit", (_e, cx) => this.saveModalGroup(cx));
+    this.modalRepoInput.on("submit", (_e, cx) => this.saveModalRepo(cx));
     this.modalSubInput.on("submit", (_e, cx) => this.saveModalSub(cx));
     this.modalTagInput.on("submit", (_e, cx) => this.saveModalTag(cx));
 
@@ -1328,6 +1330,9 @@ export default class Todos extends View {
     this.modalEditingDesc = false;
     this.modalDescTextarea.set_value(x.description || "");
     this.modalGroupInput.set_value(x.group || "");
+    const curFolder = this.lists[x.slug]?.folder || x.folder;
+    const curRepo = x.meta?.repo || (curFolder ? this.name(curFolder) : "");
+    this.modalRepoInput.set_value(curRepo);
     this.modalSubInput.set_value("");
     this.modalTagInput.set_value("");
     this.modalLinkNameInput.set_value("");
@@ -1392,6 +1397,108 @@ export default class Todos extends View {
       }
       return it;
     }), cx);
+  }
+
+  resolveRepo(input, defaultFolder) {
+    const raw = (input || "").trim();
+    const def = defaultFolder || this.here || (this.filter ? this.lists[this.filter]?.folder : null) || home();
+    if (!raw) {
+      return { folder: def, slug: keyOf(def), name: this.name(def) };
+    }
+
+    // 1. Direct match on existing loaded lists by name, slug or folder basename
+    for (const [s, l] of Object.entries(this.lists)) {
+      const pName = this.name(l.folder);
+      const base = l.folder.split("/").pop();
+      if (pName.toLowerCase() === raw.toLowerCase() || base.toLowerCase() === raw.toLowerCase() || s.toLowerCase() === raw.toLowerCase()) {
+        return { folder: l.folder, slug: s, name: pName };
+      }
+    }
+
+    // 2. Direct match on known space folders or shared project names
+    const knownFolders = [...new Set([
+      ...Object.values(this.lists).map((l) => l.folder),
+      ...spaces().map((s) => (s.folder ?? "").replace(/\/+$/, "")),
+      ...Object.keys(shared("projects.names") ?? {}),
+      ...(shared("projects.pinned") ?? []),
+      ...(shared("projects.auto") ?? [])
+    ])].filter((f) => Boolean(f) && f !== home());
+
+    for (const f of knownFolders) {
+      const pName = this.name(f);
+      const base = f.split("/").pop();
+      if (pName.toLowerCase() === raw.toLowerCase() || base.toLowerCase() === raw.toLowerCase() || f.toLowerCase() === raw.toLowerCase()) {
+        return { folder: f, slug: keyOf(f), name: pName };
+      }
+    }
+
+    // 3. Path input: expanded if starts with ~ or /
+    let cleanPath = raw;
+    if (cleanPath.startsWith("~/")) cleanPath = `${home()}/${cleanPath.slice(2)}`;
+    else if (cleanPath === "~") cleanPath = home();
+
+    if (cleanPath.startsWith("/")) {
+      const cleanFolder = cleanPath.replace(/\/+$/, "");
+      return { folder: cleanFolder, slug: keyOf(cleanFolder), name: this.name(cleanFolder) };
+    }
+
+    // 4. Check if any existing list folder ends with /raw
+    for (const [s, l] of Object.entries(this.lists)) {
+      if (l.folder.endsWith("/" + raw)) {
+        return { folder: l.folder, slug: s, name: this.name(l.folder) };
+      }
+    }
+
+    // Fallback: ~/Projects/<raw>
+    const fallback = `${home()}/Projects/${raw}`;
+    return { folder: fallback, slug: keyOf(fallback), name: raw };
+  }
+
+  setModalRepo(newRepoInput, cx) {
+    if (!this.detailTask) return;
+    const { slug, i } = this.detailTask;
+    const item = this.lists[slug]?.items?.[i];
+    if (!item) return;
+
+    const oldFolder = this.lists[slug]?.folder;
+    const resolved = this.resolveRepo(newRepoInput, oldFolder);
+    const targetSlug = resolved.slug;
+    const targetFolder = resolved.folder;
+    const targetName = resolved.name;
+
+    const nextMeta = { ...(item.meta ?? {}), repo: targetName };
+    const updatedItem = { ...item, meta: nextMeta };
+
+    if (targetSlug === slug) {
+      this.modalRepoInput.set_value(targetName);
+      this.change(slug, (items) => items.map((it, idx) => (idx === i ? updatedItem : it)), cx);
+      return;
+    }
+
+    // Move task to target list
+    const oldItems = (this.lists[slug]?.items ?? []).filter((_, idx) => idx !== i);
+    const targetList = this.lists[targetSlug] ?? { folder: targetFolder, items: [], skipped: [], opts: defOpts() };
+    const targetItems = [...(targetList.items ?? []), updatedItem];
+
+    if (this.lists[slug]) this.lists[slug].items = oldItems;
+    targetList.items = targetItems;
+    this.lists[targetSlug] = targetList;
+
+    this.detailTask = { slug: targetSlug, i: targetItems.length - 1 };
+    this.modalRepoInput.set_value(targetName);
+    cx.notify();
+
+    cx.spawn(async (cx) => {
+      await this.write(slug, oldFolder, oldItems, cx);
+      await this.write(targetSlug, targetFolder, targetItems, cx);
+      if (oldFolder) toFile(oldFolder, "rm", item.text);
+      if (targetFolder) toFile(targetFolder, "add", item.text);
+    });
+  }
+
+  saveModalRepo(cx) {
+    const val = this.modalRepoInput.value().trim();
+    this.setModalRepo(val, cx);
   }
 
   setModalPrio(prio, cx) {
@@ -1678,28 +1785,17 @@ export default class Todos extends View {
     if (!title) return;
 
     const projectName = this.createProjectInput.value().trim();
-    let targetSlug = null;
-    let targetFolder = null;
-    if (projectName) {
-      for (const [slug, l] of Object.entries(this.lists)) {
-        if (this.name(l.folder).toLowerCase() === projectName.toLowerCase() || slug.toLowerCase() === projectName.toLowerCase()) {
-          targetSlug = slug;
-          targetFolder = l.folder;
-          break;
-        }
-      }
-    }
-    if (!targetSlug) {
-      targetSlug = this.filter || (this.here ? keyOf(this.here) : Object.keys(this.lists)[0]);
-      targetFolder = this.lists[targetSlug]?.folder || this.here || home();
-    }
+    const resolved = this.resolveRepo(projectName);
+    const targetSlug = resolved.slug;
+    const targetFolder = resolved.folder;
+    const targetName = resolved.name;
 
     const group = normalizeCard(this.createGroupInput.value().trim()) || null;
     const priority = this.createPrioSelected || null;
     const description = this.createDescTextarea.value().trim();
     const subtasks = this.createInitialSubs.map((text) => ({ done: false, text, doneOn: null }));
 
-    const meta = (group || priority) ? { group, priority } : null;
+    const meta = (group || priority || targetName) ? { ...(group ? { group } : {}), ...(priority ? { priority } : {}), repo: targetName } : null;
     const newItem = {
       done: false,
       text: title,
@@ -2064,9 +2160,12 @@ export default class Todos extends View {
               )
               .child(div().w(1).h(16).bg(t.border))
               .child(div().font_semibold().text_size(12.5).child(`Tarefa #${i + 1}`))
-              .when(Boolean(folder), (el) => el.child(
-                div().px(6).py(1).rounded(9999).bg(this.color(folder, t) + "22").text_size(10).font_medium()
-                  .text_color(this.color(folder, t)).child(this.name(folder))
+              .when(Boolean(folder || task.meta?.repo), (el) => el.child(
+                h_flex().id("modal-header-repo-pill").px(8).py(1.5).rounded(9999)
+                  .bg(this.color(folder, t) + "22").border_1().border_color(this.color(folder, t) + "44")
+                  .items_center().gap(5).tooltip(`Repositório: ${folder || ""}`)
+                  .child(div().size(6).rounded(9999).bg(this.color(folder, t)))
+                  .child(div().text_size(10.5).font_semibold().text_color(this.color(folder, t)).child(task.meta?.repo || (folder ? this.name(folder) : "")))
               ))
               .child(div().flex_1())
               // Navigation Prev / Next (cleanly on the right)
@@ -2198,6 +2297,60 @@ export default class Todos extends View {
                         div().px(8).py(2).rounded(9999).bg(t.ansi6 + "22").border_1().border_color(t.ansi6 + "44")
                           .text_size(11).font_semibold().text_color(t.ansi6).child(`#${task.group}`)
                       ))
+                  )
+              )
+              // Repositório / Projeto row & quick-select pills
+              .child(
+                v_flex().gap(6)
+                  .child(
+                    h_flex().justify_between().items_center()
+                      .child(div().text_size(11).font_semibold().text_color(t.muted).child("REPOSITÓRIO / PROJETO"))
+                      .child(div().text_size(10.5).text_color(t.dim).child("Nome (ex: evah-v1) ou caminho (vazio = padrão)"))
+                  )
+                  .child(
+                    h_flex().gap(8).items_center().flex_wrap()
+                      // Pill do repositório atual
+                      .child(
+                        h_flex().id("modal-current-repo-pill").h(28).px(10).rounded(9999).items_center().gap(6)
+                          .bg(this.color(folder, t) + "22").border_1().border_color(this.color(folder, t) + "55")
+                          .tooltip(`Caminho: ${folder || "Padrão"}`)
+                          .child(div().size(7).rounded(9999).bg(this.color(folder, t)))
+                          .child(div().text_size(11.5).font_semibold().text_color(this.color(folder, t)).child(task.meta?.repo || (folder ? this.name(folder) : "Padrão")))
+                      )
+                      .child(
+                        Input.new(this.modalRepoInput).w(180).h(28).px(8).rounded(6)
+                          .border_1().border_color(t.border).bg(t.background)
+                          .text_size(12).text_color(t.foreground)
+                      )
+                      .child(
+                        div().id("btn-modal-save-repo").h(28).px(10).rounded(6).bg(t.raised).border_1().border_color(t.border).cursor_pointer().flex().items_center().justify_center()
+                          .hover((st) => st.bg(t.hover).border_color(t.accent))
+                          .on_click((_e, cx) => this.saveModalRepo(cx))
+                          .child(div().text_size(11).text_color(t.foreground).child("Vincular"))
+                      )
+                      .child(
+                        div().id("btn-modal-default-repo").h(28).px(8).rounded(6).bg(t.raised + "66").border_1().border_color(t.border).cursor_pointer().flex().items_center().justify_center()
+                          .hover((st) => st.bg(t.hover))
+                          .tooltip("Redefinir para o repositório padrão / atual")
+                          .on_click((_e, cx) => this.setModalRepo("", cx))
+                          .child(div().text_size(10.5).text_color(t.muted).child("Padrão"))
+                      )
+                  )
+                  // Pills dos repositórios disponíveis para troca rápida com 1 clique
+                  .child(
+                    h_flex().gap(6).flex_wrap().children(
+                      this.projectChoices(t).map((p) => {
+                        const curName = task.meta?.repo || (folder ? this.name(folder) : "");
+                        const isCur = curName.toLowerCase() === p.name.toLowerCase();
+                        return h_flex().id(`repo-pick-${p.name}`).h(24).px(8).rounded(9999).cursor_pointer().items_center().gap(5)
+                          .border_1().border_color(isCur ? p.color : t.border)
+                          .bg(isCur ? p.color + "26" : t.raised + "55")
+                          .hover((st) => st.bg(isCur ? p.color + "38" : t.hover))
+                          .on_click((_e, cx) => this.setModalRepo(p.name, cx))
+                          .child(div().size(6).rounded(9999).bg(p.color))
+                          .child(div().text_size(11).font_semibold().text_color(isCur ? p.color : t.muted).child(p.name));
+                      })
+                    )
                   )
               )
               // Description section (Markdown View + Textarea Edit)
@@ -2514,6 +2667,7 @@ export default class Todos extends View {
       const subTotal = x.subtasks?.length ?? 0;
       const isExp = this.expanded?.has(key);
       const hasSubtasks = subTotal > 0;
+      const repoName = x.meta?.repo || (x.folder ? this.name(x.folder) : "");
       return h_flex().id(`todo-${key}`).min_h(36).px(10).py(4).gap(8).items_center().rounded(8)
         .when(on, (el) => el.bg(t.accent + "38")).hover((s) => s.bg(on ? t.accent + "38" : t.hover))
         .on_click((e, cx) => { if (multi(e) && !editing && this.filter) this.pick(x, e, cx); })
@@ -2546,6 +2700,14 @@ export default class Todos extends View {
         .when(Boolean(x.group) && !editing && !x.text.toUpperCase().includes(x.group), (el) => el.child(
           div().px(6).py(1).rounded(9999).bg(t.ansi6 + "18").border_1().border_color(t.ansi6 + "44")
             .text_size(10).font_semibold().text_color(t.ansi6).child(`#${x.group}`)
+        ))
+        // Repositório / Projeto pill
+        .when(Boolean(repoName) && !editing, (el) => el.child(
+          div().id(`repo-${key}`).px(6).py(1).rounded(9999)
+            .border_1().border_color(c + "44").bg(c + "18")
+            .text_size(9.5).font_semibold().text_color(c)
+            .tooltip(`Repositório: ${repoName} (${x.folder || ""})`)
+            .child(repoName)
         ))
         // Desc pill indicator (badge discreto indicando specs/detalhes)
         .when(Boolean(x.description) && !editing, (el) => el.child(
