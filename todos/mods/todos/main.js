@@ -2688,7 +2688,7 @@ export default class Todos extends View {
         .items_center()
         .child(div().text_size(11).font_bold().text_color(t.muted).child(title.toUpperCase()))
         .child(div().text_size(10).text_color(t.dim).child(`(${count})`))
-        .child(div().flex_1().h(1).bg(t.border + "55"));
+        .child(div().flex_1().h(1).bg(t.border));
 
     const btn = (id, text, primary, action, icon = null) =>
       h_flex()
@@ -2781,7 +2781,7 @@ export default class Todos extends View {
           .gap(8)
           .flex_none()
           .border_b(1)
-          .border_color(t.border + "66")
+          .border_color(t.border)
           // Search input
           .child(
             h_flex()
