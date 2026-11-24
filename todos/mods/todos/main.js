@@ -764,6 +764,125 @@ export default class Todos extends View {
       }
     });
     this.modalLinkUrlInput.on("submit", (_e, cx) => this.saveModalLink(cx));
+
+    // Filtro e Visualização Customizada de Cards
+    this.customCardFilter = null; // null = segue os cards do Space ativo; Array de cards = filtro customizado
+    this.cardDropdownOpen = false;
+    this.cardSearchInput = InputState.new({ placeholder: "Filtrar cards..." });
+    this.cardSearchInput.on("change", (_e, cx) => cx.notify());
+
+    this.showCardFilterModal = false;
+    this.modalCardSearchInput = InputState.new({ placeholder: "Buscar por nome do card, projeto ou space..." });
+    this.modalCardSearchInput.on("change", (_e, cx) => cx.notify());
+    this.modalSelectedCards = new Set();
+  }
+
+  getAllProjectCards() {
+    const sc = shared("spaces.cards") ?? {};
+    const spList = spaces() ?? [];
+    const activeSpace = spList.find((s) => s.active);
+
+    // Mapeamento de Card -> Space
+    const cardToSpace = new Map();
+    if (sc.spaces) {
+      for (const [sId, cardVal] of Object.entries(sc.spaces)) {
+        if (!cardVal || cardVal === "none") continue;
+        const sObj = spList.find((s) => s.id === sId);
+        const sName = sObj?.name || sId;
+        const isCurrent = activeSpace?.id === sId;
+        const cList = parseCards(cardVal);
+        for (const c of cList) {
+          cardToSpace.set(c, { id: sId, name: sName, isCurrent });
+        }
+      }
+    }
+
+    // Coleta todas as tarefas de todas as listas
+    const allItems = Object.values(this.lists).flatMap((l) => l.items ?? []);
+    const cardStats = new Map();
+
+    const registerCard = (c, isDone) => {
+      const norm = normalizeCard(c);
+      if (!norm) return;
+      let stat = cardStats.get(norm);
+      if (!stat) {
+        stat = { name: norm, open: 0, done: 0, space: cardToSpace.get(norm) || null };
+        cardStats.set(norm, stat);
+      }
+      if (isDone) stat.done += 1;
+      else stat.open += 1;
+    };
+
+    for (const item of allItems) {
+      if (item.group) registerCard(item.group, item.done);
+      const inText = /\b(CARD|EVAH|TASK|PROJ|ISSUE)[-_ ]?([0-9]+)\b/i.exec(item.text);
+      if (inText) registerCard(`${inText[1]}-${inText[2]}`, item.done);
+    }
+
+    // Também garante que os cards explicitamente cadastrados no spaces.cards apareçam
+    for (const [c, sInfo] of cardToSpace.entries()) {
+      if (!cardStats.has(c)) {
+        cardStats.set(c, { name: c, open: 0, done: 0, space: sInfo });
+      } else {
+        cardStats.get(c).space = sInfo;
+      }
+    }
+
+    return [...cardStats.values()].sort((a, b) => {
+      const aCur = a.space?.isCurrent ? 1 : 0;
+      const bCur = b.space?.isCurrent ? 1 : 0;
+      if (aCur !== bCur) return bCur - aCur;
+
+      const aHasSp = a.space ? 1 : 0;
+      const bHasSp = b.space ? 1 : 0;
+      if (aHasSp !== bHasSp) return bHasSp - aHasSp;
+
+      if (b.open !== a.open) return b.open - a.open;
+      return a.name.localeCompare(b.name, undefined, { numeric: true });
+    });
+  }
+
+  openCardFilterModal(cx) {
+    this.showCardFilterModal = true;
+    this.cardDropdownOpen = false;
+    this.modalCardSearchInput.set_value("");
+
+    const activeSpace = spaces().find((s) => s.active);
+    const sc = shared("spaces.cards") ?? {};
+    const detectCard = (name) => {
+      if (!name) return "";
+      const m = /\b(CARD|EVAH|TASK|PROJ|ISSUE)[-_ ]?([0-9]+)\b/i.exec(name);
+      return m ? `${m[1].toUpperCase()}-${m[2]}` : "";
+    };
+    const explicit = sc.spaces?.[activeSpace?.id];
+    const spaceLinkedCards = parseCards(explicit && explicit !== "none" ? explicit : (detectCard(activeSpace?.name) || ""));
+
+    const initial = this.customCardFilter !== null ? this.customCardFilter : spaceLinkedCards;
+    this.modalSelectedCards = new Set(initial);
+    cx.notify();
+  }
+
+  closeCardFilterModal(cx) {
+    this.showCardFilterModal = false;
+    cx.notify();
+  }
+
+  applyCardFilterModal(cx) {
+    const selected = [...this.modalSelectedCards];
+    if (selected.length === 0) {
+      this.customCardFilter = null;
+    } else {
+      this.customCardFilter = selected;
+    }
+    this.showCardFilterModal = false;
+    cx.notify();
+  }
+
+  resetCardFilterToSpace(cx) {
+    this.customCardFilter = null;
+    this.cardDropdownOpen = false;
+    this.showCardFilterModal = false;
+    cx.notify();
   }
 
   cyclePrio(cx) {
@@ -2242,6 +2361,613 @@ export default class Todos extends View {
       );
   }
 
+  renderCardDropdown(t, cx, activeSpace, linkedCards) {
+    if (!this.cardDropdownOpen) return div();
+
+    const allCards = this.getAllProjectCards();
+    const query = this.cardSearchInput.value().trim().toLowerCase().replace(/^#/, "");
+    const matching = allCards.filter((c) => {
+      if (!query) return true;
+      if (c.name.toLowerCase().includes(query)) return true;
+      if (c.space?.name?.toLowerCase().includes(query)) return true;
+      return false;
+    }).slice(0, 10);
+
+    const effectiveCards = this.customCardFilter !== null ? this.customCardFilter : linkedCards;
+    const isCustom = this.customCardFilter !== null;
+
+    return div()
+      .id("card-dropdown-popover")
+      .absolute()
+      .top(40)
+      .left(14)
+      .w(340)
+      .max_h(400)
+      .rounded(8)
+      .border_1()
+      .border_color(t.border)
+      .bg(t.popover)
+      .shadow_lg()
+      .z_index(50)
+      .flex()
+      .flex_col()
+      .overflow_hidden()
+      // Top search input
+      .child(
+        h_flex()
+          .p(8)
+          .border_b(1)
+          .border_color(t.border)
+          .gap(6)
+          .items_center()
+          .child(svg("mods/todos/tag.svg").size(12).text_color(t.dim))
+          .child(
+            Input.new(this.cardSearchInput)
+              .flex_1()
+              .h(26)
+              .px(6)
+              .rounded(5)
+              .border_1()
+              .border_color(t.input)
+              .bg(t.background)
+              .text_size(11.5)
+              .text_color(t.foreground),
+          )
+          .child(
+            div()
+              .size(18)
+              .rounded(4)
+              .cursor_pointer()
+              .flex()
+              .items_center()
+              .justify_center()
+              .hover((s) => s.bg(t.hover))
+              .on_click((_e, cx) => {
+                this.cardDropdownOpen = false;
+                cx.notify();
+              })
+              .child(svg("mods/workspace-chrome/x.svg").size(10).text_color(t.muted)),
+          ),
+      )
+      // Reset to Space option
+      .when(isCustom, (el) =>
+        el.child(
+          h_flex()
+            .px(10)
+            .py(7)
+            .gap(6)
+            .items_center()
+            .cursor_pointer()
+            .bg(t.accent + "18")
+            .border_b(1)
+            .border_color(t.accent + "44")
+            .hover((s) => s.bg(t.accent + "2c"))
+            .on_click((_e, cx) => this.resetCardFilterToSpace(cx))
+            .child(svg("mods/todos/star.svg").size(11).text_color(t.accent))
+            .child(div().text_size(11.5).font_semibold().text_color(t.accent).child(`★ Voltar para o Space (${activeSpace?.name || "Space"})`)),
+        ),
+      )
+      // List of cards
+      .child(
+        v_flex()
+          .flex_1()
+          .min_h(0)
+          .overflow_y_scrollbar()
+          .p(4)
+          .gap(1)
+          .when(matching.length === 0, (el) =>
+            el.child(
+              div().px(10).py(8).text_size(11.5).text_color(t.dim).child("Nenhum card encontrado"),
+            ),
+          )
+          .children(
+            matching.map((c) => {
+              const isPicked = effectiveCards.includes(c.name);
+              return h_flex()
+                .id(`dropdown-card-${c.name}`)
+                .h(30)
+                .px(8)
+                .gap(6)
+                .items_center()
+                .rounded(5)
+                .cursor_pointer()
+                .bg(isPicked ? t.accent + "20" : "transparent")
+                .hover((s) => s.bg(isPicked ? t.accent + "2c" : t.hover))
+                .on_click((_e, cx) => {
+                  if (effectiveCards.includes(c.name) && effectiveCards.length > 1) {
+                    this.customCardFilter = effectiveCards.filter((x) => x !== c.name);
+                  } else {
+                    this.customCardFilter = [c.name];
+                  }
+                  this.cardDropdownOpen = false;
+                  cx.notify();
+                })
+                .child(
+                  div()
+                    .size(6)
+                    .rounded(3)
+                    .bg(isPicked ? t.accent : c.space ? t.ansi4 : t.dim),
+                )
+                .child(
+                  div()
+                    .text_size(12)
+                    .font_semibold()
+                    .text_color(isPicked ? t.accent : t.foreground)
+                    .child(`#${c.name}`),
+                )
+                .child(
+                  div()
+                    .text_size(10.5)
+                    .text_color(t.dim)
+                    .child(`(${c.open})`),
+                )
+                .child(div().flex_1())
+                .child(
+                  div()
+                    .text_size(10)
+                    .text_color(c.space?.isCurrent ? t.accent : c.space ? t.ansi4 : t.dim)
+                    .child(c.space?.isCurrent ? "Space atual" : c.space ? c.space.name : "sem space"),
+                );
+            }),
+          ),
+      )
+      // Footer action: open full modal
+      .child(
+        h_flex()
+          .h(34)
+          .px(10)
+          .gap(6)
+          .items_center()
+          .justify_between()
+          .border_t(1)
+          .border_color(t.border)
+          .bg(t.raised)
+          .cursor_pointer()
+          .hover((s) => s.bg(t.hover))
+          .on_click((_e, cx) => this.openCardFilterModal(cx))
+          .child(
+            h_flex()
+              .gap(5)
+              .items_center()
+              .child(svg("mods/todos/tag.svg").size(11).text_color(t.accent))
+              .child(div().text_size(11).font_medium().text_color(t.foreground).child("Gerenciador completo de Cards...")),
+          )
+          .child(svg("mods/todos/arrow-up-right.svg").size(11).text_color(t.accent)),
+      );
+  }
+
+  renderCardFilterModal(t, cx) {
+    if (!this.showCardFilterModal) return div();
+
+    const allCards = this.getAllProjectCards();
+    const query = this.modalCardSearchInput.value().trim().toLowerCase().replace(/^#/, "");
+
+    const filteredCards = allCards.filter((c) => {
+      if (!query) return true;
+      if (c.name.toLowerCase().includes(query)) return true;
+      if (c.space?.name?.toLowerCase().includes(query)) return true;
+      return false;
+    });
+
+    const activeSpace = spaces().find((s) => s.active);
+    const sc = shared("spaces.cards") ?? {};
+    const detectCard = (name) => {
+      if (!name) return "";
+      const m = /\b(CARD|EVAH|TASK|PROJ|ISSUE)[-_ ]?([0-9]+)\b/i.exec(name);
+      return m ? `${m[1].toUpperCase()}-${m[2]}` : "";
+    };
+    const explicit = sc.spaces?.[activeSpace?.id];
+    const spaceLinkedCards = parseCards(explicit && explicit !== "none" ? explicit : (detectCard(activeSpace?.name) || ""));
+
+    const currentSpaceGroup = filteredCards.filter((c) => c.space?.isCurrent);
+    const otherSpaceGroup = filteredCards.filter((c) => c.space && !c.space.isCurrent);
+    const noSpaceGroup = filteredCards.filter((c) => !c.space);
+
+    const isAllSelected = filteredCards.length > 0 && filteredCards.every((c) => this.modalSelectedCards.has(c.name));
+    const selectedCount = this.modalSelectedCards.size;
+    const selectedTasksCount = allCards
+      .filter((c) => this.modalSelectedCards.has(c.name))
+      .reduce((acc, c) => acc + c.open, 0);
+
+    const toggleCard = (cardName) => {
+      if (this.modalSelectedCards.has(cardName)) {
+        this.modalSelectedCards.delete(cardName);
+      } else {
+        this.modalSelectedCards.add(cardName);
+      }
+      cx.notify();
+    };
+
+    const cardRow = (c) => {
+      const isSelected = this.modalSelectedCards.has(c.name);
+      return h_flex()
+        .id(`modal-card-row-${c.name}`)
+        .min_h(36)
+        .px(10)
+        .py(6)
+        .gap(10)
+        .items_center()
+        .rounded(7)
+        .cursor_pointer()
+        .bg(isSelected ? t.accent + "18" : "transparent")
+        .border_1()
+        .border_color(isSelected ? t.accent + "44" : "transparent")
+        .hover((s) => s.bg(isSelected ? t.accent + "26" : t.hover))
+        .on_click((_e, _cx) => toggleCard(c.name))
+        .child(
+          div()
+            .size(16)
+            .rounded(5)
+            .border_1()
+            .border_color(isSelected ? t.accent : t.muted)
+            .bg(isSelected ? t.accent : t.raised)
+            .flex()
+            .items_center()
+            .justify_center()
+            .when(isSelected, (el) =>
+              el.child(svg("mods/workspace-chrome/check.svg").size(10).text_color("#ffffff"))
+            )
+        )
+        .child(
+          h_flex()
+            .flex_1()
+            .min_w(0)
+            .gap(8)
+            .items_center()
+            .child(
+              div()
+                .text_size(13)
+                .font_bold()
+                .text_color(isSelected ? t.foreground : t.ansi6)
+                .child(`#${c.name}`)
+            )
+            .child(
+              div()
+                .text_size(11)
+                .text_color(t.dim)
+                .child(`${c.open} ${c.open === 1 ? "aberta" : "abertas"}${c.done > 0 ? ` · ${c.done} conc.` : ""}`)
+            )
+        )
+        .child(
+          c.space?.isCurrent
+            ? h_flex()
+                .px(7)
+                .py(2)
+                .gap(5)
+                .items_center()
+                .rounded(5)
+                .bg(t.accent + "22")
+                .border_1()
+                .border_color(t.accent + "55")
+                .child(div().size(6).rounded(3).bg(t.accent))
+                .child(div().text_size(10.5).font_semibold().text_color(t.accent).child(`Space atual (${c.space.name})`))
+            : c.space
+            ? h_flex()
+                .px(7)
+                .py(2)
+                .gap(5)
+                .items_center()
+                .rounded(5)
+                .bg(t.ansi4 + "1a")
+                .border_1()
+                .border_color(t.ansi4 + "44")
+                .child(div().size(6).rounded(3).bg(t.ansi4))
+                .child(div().text_size(10.5).font_medium().text_color(t.ansi4).child(`Space: ${c.space.name}`))
+            : h_flex()
+                .px(7)
+                .py(2)
+                .gap(5)
+                .items_center()
+                .rounded(5)
+                .bg(t.raised)
+                .border_1()
+                .border_color(t.border)
+                .child(div().size(6).rounded(3).bg(t.dim))
+                .child(div().text_size(10.5).text_color(t.dim).child("Sem Space"))
+        );
+    };
+
+    const sectionHeader = (title, count) =>
+      h_flex()
+        .pt(10)
+        .pb(4)
+        .px(6)
+        .gap(6)
+        .items_center()
+        .child(div().text_size(11).font_bold().text_color(t.muted).child(title.toUpperCase()))
+        .child(div().text_size(10).text_color(t.dim).child(`(${count})`))
+        .child(div().flex_1().h(1).bg(t.border + "55"));
+
+    const btn = (id, text, primary, action, icon = null) =>
+      h_flex()
+        .id(id)
+        .h(30)
+        .px(12)
+        .items_center()
+        .gap(5)
+        .rounded(6)
+        .border_1()
+        .border_color(primary ? t.accent : t.border)
+        .bg(primary ? t.accent : t.raised)
+        .text_color(primary ? "#ffffff" : t.foreground)
+        .text_size(12)
+        .font_medium()
+        .cursor_pointer()
+        .hover((s) => s.opacity(0.88))
+        .on_click(action)
+        .when(Boolean(icon), (el) => el.child(svg(icon).size(11).text_color(primary ? "#ffffff" : t.muted)))
+        .child(text);
+
+    return div()
+      .id("card-filter-modal-drawer")
+      .absolute()
+      .inset_0()
+      .bg(t.background)
+      .rounded(10)
+      .border_1()
+      .border_color(t.border)
+      .shadow_lg()
+      .overflow_hidden()
+      .flex()
+      .flex_col()
+      // Header
+      .child(
+        h_flex()
+          .h(46)
+          .px(14)
+          .items_center()
+          .border_b(1)
+          .border_color(t.border)
+          .gap(10)
+          .flex_none()
+          .child(
+            h_flex()
+              .id("btn-card-filter-back")
+              .h(28)
+              .px(10)
+              .rounded(6)
+              .cursor_pointer()
+              .items_center()
+              .gap(5)
+              .bg(t.accent + "22")
+              .border_1()
+              .border_color(t.accent + "55")
+              .hover((s) => s.bg(t.accent + "38").border_color(t.accent))
+              .tooltip("Fechar e voltar para a lista (Esc)")
+              .on_click((_e, cx) => this.closeCardFilterModal(cx))
+              .child(svg("mods/workspace-chrome/chevron-left.svg").size(13).text_color(t.accent))
+              .child(div().text_size(12).font_semibold().text_color(t.accent).child("Voltar")),
+          )
+          .child(div().w(1).h(16).bg(t.border))
+          .child(
+            h_flex()
+              .gap(6)
+              .items_center()
+              .child(svg("mods/todos/tag.svg").size(14).text_color(t.accent))
+              .child(div().font_semibold().text_size(13).child("Gerenciador de Cards / Visualização")),
+          )
+          .child(div().flex_1())
+          .child(
+            div()
+              .id("btn-close-filter-modal-x")
+              .size(24)
+              .rounded(5)
+              .flex()
+              .items_center()
+              .justify_center()
+              .cursor_pointer()
+              .hover((s) => s.bg(t.hover))
+              .on_click((_e, cx) => this.closeCardFilterModal(cx))
+              .child(svg("mods/workspace-chrome/x.svg").size(12).text_color(t.muted)),
+          ),
+      )
+      // Controls & Search Bar
+      .child(
+        v_flex()
+          .p(12)
+          .pb(6)
+          .gap(8)
+          .flex_none()
+          .border_b(1)
+          .border_color(t.border + "66")
+          // Search input
+          .child(
+            h_flex()
+              .h(34)
+              .px(10)
+              .rounded(7)
+              .border_1()
+              .border_color(t.border)
+              .bg(t.raised)
+              .items_center()
+              .gap(6)
+              .child(svg("mods/todos/tag.svg").size(13).text_color(t.dim))
+              .child(
+                Input.new(this.modalCardSearchInput)
+                  .flex_1()
+                  .h_full()
+                  .text_size(12.5)
+                  .text_color(t.foreground),
+              )
+              .when(Boolean(query), (el) =>
+                el.child(
+                  div()
+                    .size(18)
+                    .rounded(4)
+                    .cursor_pointer()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .hover((s) => s.bg(t.hover))
+                    .on_click((_e, cx) => {
+                      this.modalCardSearchInput.set_value("");
+                      cx.notify();
+                    })
+                    .child(svg("mods/workspace-chrome/x.svg").size(10).text_color(t.muted)),
+                ),
+              ),
+          )
+          // Action pills
+          .child(
+            h_flex()
+              .gap(6)
+              .items_center()
+              .flex_wrap()
+              .child(
+                h_flex()
+                  .id("btn-modal-select-all")
+                  .h(24)
+                  .px(8)
+                  .rounded(5)
+                  .gap(4)
+                  .items_center()
+                  .cursor_pointer()
+                  .bg(isAllSelected ? t.accent + "28" : t.raised)
+                  .border_1()
+                  .border_color(isAllSelected ? t.accent : t.border)
+                  .hover((s) => s.border_color(t.accent))
+                  .on_click((_e, cx) => {
+                    if (isAllSelected) {
+                      filteredCards.forEach((c) => this.modalSelectedCards.delete(c.name));
+                    } else {
+                      filteredCards.forEach((c) => this.modalSelectedCards.add(c.name));
+                    }
+                    cx.notify();
+                  })
+                  .child(svg("mods/workspace-chrome/check.svg").size(10).text_color(isAllSelected ? t.accent : t.muted))
+                  .child(
+                    div()
+                      .text_size(11)
+                      .font_medium()
+                      .text_color(isAllSelected ? t.accent : t.foreground)
+                      .child(isAllSelected ? "Desmarcar visíveis" : "Selecionar todos visíveis"),
+                  ),
+              )
+              .child(
+                h_flex()
+                  .id("btn-modal-space-only")
+                  .h(24)
+                  .px(8)
+                  .rounded(5)
+                  .gap(4)
+                  .items_center()
+                  .cursor_pointer()
+                  .bg(t.raised)
+                  .border_1()
+                  .border_color(t.border)
+                  .hover((s) => s.border_color(t.accent))
+                  .on_click((_e, cx) => {
+                    this.modalSelectedCards = new Set(spaceLinkedCards);
+                    cx.notify();
+                  })
+                  .child(svg("mods/todos/star.svg").size(10).text_color(t.accent))
+                  .child(div().text_size(11).font_medium().text_color(t.foreground).child("Apenas Cards deste Space")),
+              )
+              .when(selectedCount > 0, (el) =>
+                el.child(
+                  h_flex()
+                    .id("btn-modal-clear-all")
+                    .h(24)
+                    .px(8)
+                    .rounded(5)
+                    .gap(4)
+                    .items_center()
+                    .cursor_pointer()
+                    .bg(t.raised)
+                    .border_1()
+                    .border_color(t.border)
+                    .hover((s) => s.border_color(t.ansi1))
+                    .on_click((_e, cx) => {
+                      this.modalSelectedCards.clear();
+                      cx.notify();
+                    })
+                    .child(div().text_size(11).font_medium().text_color(t.dim).child("Limpar seleção")),
+                ),
+              ),
+          ),
+      )
+      // Card List
+      .child(
+        v_flex()
+          .flex_1()
+          .min_h(0)
+          .overflow_y_scrollbar()
+          .p(10)
+          .gap(3)
+          .when(filteredCards.length === 0, (el) =>
+            el.child(
+              v_flex()
+                .size_full()
+                .items_center()
+                .justify_center()
+                .py(30)
+                .gap(6)
+                .child(div().font_medium().text_size(13).text_color(t.muted).child("Nenhum card encontrado"))
+                .child(div().text_size(11).text_color(t.dim).child(`Nenhum resultado para "${query}"`)),
+            ),
+          )
+          .when(currentSpaceGroup.length > 0, (el) =>
+            el
+              .child(sectionHeader(`Cards vinculados a este Space (${activeSpace?.name || "Space"})`, currentSpaceGroup.length))
+              .children(currentSpaceGroup.map(cardRow)),
+          )
+          .when(otherSpaceGroup.length > 0, (el) =>
+            el
+              .child(sectionHeader("Outros Cards com Space atribuído", otherSpaceGroup.length))
+              .children(otherSpaceGroup.map(cardRow)),
+          )
+          .when(noSpaceGroup.length > 0, (el) =>
+            el
+              .child(sectionHeader("Cards sem Space atribuído (avulsos / backlog)", noSpaceGroup.length))
+              .children(noSpaceGroup.map(cardRow)),
+          ),
+      )
+      // Footer
+      .child(
+        h_flex()
+          .h(48)
+          .px(14)
+          .items_center()
+          .justify_between()
+          .border_t(1)
+          .border_color(t.border)
+          .bg(t.raised + "44")
+          .flex_none()
+          .child(
+            h_flex()
+              .gap(6)
+              .items_center()
+              .child(
+                div()
+                  .text_size(11.5)
+                  .font_semibold()
+                  .text_color(selectedCount > 0 ? t.accent : t.muted)
+                  .child(`${selectedCount} ${selectedCount === 1 ? "card selecionado" : "cards selecionados"}`),
+              )
+              .child(
+                div()
+                  .text_size(11)
+                  .text_color(t.dim)
+                  .child(`(${selectedTasksCount} tarefas abertas)`),
+              ),
+          )
+          .child(
+            h_flex()
+              .gap(8)
+              .items_center()
+              .child(
+                btn("btn-modal-reset-space", "Redefinir para o Space", false, (_e, cx) => this.resetCardFilterToSpace(cx), "mods/todos/star.svg"),
+              )
+              .child(
+                btn("btn-modal-cancel", "Cancelar", false, (_e, cx) => this.closeCardFilterModal(cx)),
+              )
+              .child(
+                btn("btn-modal-apply", "✓ Visualizar Cards", true, (_e, cx) => this.applyCardFilterModal(cx)),
+              ),
+          ),
+      );
+  }
+
   renderDetailModal(t, cx) {
     if (!this.detailTask) return div();
     const { slug, i } = this.detailTask;
@@ -2749,9 +3475,12 @@ export default class Todos extends View {
       linkedCards = fromName ? [fromName] : [];
     }
 
-    // Strict Space Card scope: display tasks belonging to the active Space's assigned Card(s)
-    const cardItems = linkedCards.length > 0 ? all.filter((x) => {
-      const matched = getTaskCard(x, linkedCards);
+    // Filtro efetivo: customizado pelo seletor ou padrão vinculado ao Space
+    const effectiveCards = this.customCardFilter !== null ? this.customCardFilter : linkedCards;
+
+    // Strict Card scope: display tasks belonging to the active Space's assigned Card(s) or custom filter
+    const cardItems = effectiveCards.length > 0 ? all.filter((x) => {
+      const matched = getTaskCard(x, effectiveCards);
       if (matched) {
         x._matchedCard = matched;
         return true;
@@ -2763,11 +3492,11 @@ export default class Todos extends View {
     const dueKey = (x) => (x.due ? x.due.padEnd(16, " ") : "~");
 
     // Grouping & Card-scoped indexing:
-    // When multiple cards are linked to a Space, group open tasks by card and index 1..N per card!
+    // When multiple cards are viewed, group open tasks by card and index 1..N per card!
     const cardGroups = [];
     let allGroupedOpen = [];
-    if (linkedCards.length > 1) {
-      for (const card of linkedCards) {
+    if (effectiveCards.length > 1) {
+      for (const card of effectiveCards) {
         const groupTasks = open.filter((x) => x._matchedCard === card || cardsMatch(x.group, card));
         groupTasks.sort((a, b) => (b.slug === hereSlug) - (a.slug === hereSlug) || dueKey(a).localeCompare(dueKey(b)) || a.slug.localeCompare(b.slug) || a.i - b.i);
         groupTasks.forEach((t, idx) => {
@@ -2781,7 +3510,7 @@ export default class Todos extends View {
       open.sort((a, b) => (b.slug === hereSlug) - (a.slug === hereSlug) || dueKey(a).localeCompare(dueKey(b)) || a.slug.localeCompare(b.slug) || a.i - b.i);
       open.forEach((t, idx) => {
         t.displayIndex = idx + 1;
-        t.cardGroup = linkedCards[0] || null;
+        t.cardGroup = effectiveCards[0] || null;
       });
       allGroupedOpen = open;
     }
@@ -3188,6 +3917,17 @@ export default class Todos extends View {
     return div().relative().size_full().overflow_hidden()
       .on_key_down((e, cx) => {
         if (e.key === "escape") {
+          if (this.showCardFilterModal) {
+            this.closeCardFilterModal(cx);
+            cx.stop_propagation();
+            return;
+          }
+          if (this.cardDropdownOpen) {
+            this.cardDropdownOpen = false;
+            cx.notify();
+            cx.stop_propagation();
+            return;
+          }
           if (this.showCreateModal) {
             this.closeCreateModal(cx);
             cx.stop_propagation();
@@ -3211,7 +3951,22 @@ export default class Todos extends View {
         .child(
           h_flex().items_center().gap(8)
             .child(div().font_semibold().text_size(13).child("To-do"))
-            .when(linkedCards.length > 0, (b) =>
+            .when(Boolean(this.customCardFilter !== null), (b) =>
+              b.child(
+                h_flex().id("btn-space-card-custom-badge").h(24).px(8).rounded(6).cursor_pointer().items_center().gap(5)
+                  .bg(t.ansi4 + "22").border_1().border_color(t.ansi4 + "66")
+                  .hover((s) => s.bg(t.ansi4 + "38"))
+                  .tooltip("Filtro customizado de cards ativo (clique para alternar)")
+                  .on_click((_e, cx) => {
+                    this.cardDropdownOpen = !this.cardDropdownOpen;
+                    cx.notify();
+                  })
+                  .child(svg("mods/todos/tag.svg").size(11).text_color(t.ansi4))
+                  .child(div().text_size(11.5).font_bold().text_color(t.ansi4).child(`Visualizando ${effectiveCards.length} ${effectiveCards.length === 1 ? "Card" : "Cards"}`))
+                  .child(svg(`mods/workspace-chrome/chevron-${this.cardDropdownOpen ? "up" : "down"}.svg`).size(8).text_color(t.ansi4))
+              )
+            )
+            .when(this.customCardFilter === null && linkedCards.length > 0, (b) =>
               b.child(
                 h_flex()
                   .gap(5)
@@ -3221,37 +3976,41 @@ export default class Todos extends View {
                       h_flex().id(`btn-space-card-badge-${c}`).h(24).px(8).rounded(6).cursor_pointer().items_center().gap(5)
                         .bg(t.accent + "1f").border_1().border_color(t.accent + "55")
                         .hover((s) => s.bg(t.accent + "33").border_color(t.accent))
-                        .tooltip(`Card atribuído: #${c} (clique para gerenciar)`)
-                        .on_click((_e, _cx) => {
-                          const s = spaces().find((x) => x.active);
-                          if (s) {
-                            openOverlay({ mod: "space-card", kind: "dialog", width: 460, height: 420, props: { space: s.id, folder: s.folder } });
-                          }
+                        .tooltip(`Card atribuído: #${c} (clique para buscar ou trocar cards)`)
+                        .on_click((_e, cx) => {
+                          this.cardDropdownOpen = !this.cardDropdownOpen;
+                          cx.notify();
                         })
                         .child(svg("mods/todos/star.svg").size(11).text_color(t.accent))
                         .child(div().text_size(11.5).font_bold().text_color(t.accent).child(`#${c}`))
-                        .child(svg("mods/todos/tag.svg").size(10).text_color(t.accent + "aa"))
+                        .child(svg(`mods/workspace-chrome/chevron-${this.cardDropdownOpen ? "up" : "down"}.svg`).size(8).text_color(t.accent + "aa"))
                     )
                   )
               )
             )
-            .when(linkedCards.length === 0, (b) =>
+            .when(this.customCardFilter === null && linkedCards.length === 0, (b) =>
               b.child(
                 h_flex().id("btn-space-card-empty-badge").h(24).px(8).rounded(6).cursor_pointer().items_center().gap(5)
                   .bg(t.ansi3 + "1f").border_1().border_color(t.ansi3 + "55")
                   .hover((s) => s.bg(t.ansi3 + "33"))
-                  .tooltip("Clique para vincular Cards a este Space")
-                  .on_click((_e, _cx) => {
-                    const s = spaces().find((x) => x.active);
-                    if (s) {
-                      openOverlay({ mod: "space-card", kind: "dialog", width: 460, height: 420, props: { space: s.id, folder: s.folder } });
-                    }
+                  .tooltip("Clique para buscar ou vincular Cards")
+                  .on_click((_e, cx) => {
+                    this.cardDropdownOpen = !this.cardDropdownOpen;
+                    cx.notify();
                   })
                   .child(svg("mods/todos/tag.svg").size(11).text_color(t.ansi3))
                   .child(div().text_size(11.5).font_semibold().text_color(t.ansi3).child("Sem Card"))
+                  .child(svg(`mods/workspace-chrome/chevron-${this.cardDropdownOpen ? "up" : "down"}.svg`).size(8).text_color(t.ansi3))
               )
             )
-            .when(linkedCards.length > 0, (b) =>
+            .child(
+              h_flex().id("btn-open-card-filter-modal").size(24).rounded(5).cursor_pointer().items_center().justify_center()
+                .hover((s) => s.bg(t.hover))
+                .tooltip("Gerenciador completo de cards e filtros")
+                .on_click((_e, cx) => this.openCardFilterModal(cx))
+                .child(svg("mods/todos/arrow-up-right.svg").size(11).text_color(t.muted))
+            )
+            .when(effectiveCards.length > 0, (b) =>
               b.child(div().px(5).py(1).rounded(4).border_1().border_color(t.border).text_size(10).text_color(t.muted).child(`${open.length} ${open.length === 1 ? "aberta" : "abertas"}`))
             )
         )
@@ -3287,6 +4046,48 @@ export default class Todos extends View {
             .child(toggle("link", "Sync", "mods/todos/sync.svg", o.sync, syncTip, (cx) => this.setOpt(l.folder, "sync", !o.sync, cx)));
         }))
       .when(picks.length > 0, (el) => el.child(pickBar()))
+      // Custom Card Filter Notification Banner
+      .when(Boolean(this.customCardFilter !== null), (el) =>
+        el.child(
+          h_flex()
+            .h(30)
+            .px(12)
+            .gap(8)
+            .items_center()
+            .bg(t.ansi4 + "15")
+            .border_b(1)
+            .border_color(t.ansi4 + "33")
+            .child(svg("mods/todos/tag.svg").size(11).text_color(t.ansi4))
+            .child(
+              div()
+                .text_size(11)
+                .text_color(t.foreground)
+                .child(`Filtro customizado ativo (${effectiveCards.length} ${effectiveCards.length === 1 ? "card" : "cards"})`),
+            )
+            .child(div().flex_1())
+            .child(
+              h_flex()
+                .h(22)
+                .px(7)
+                .gap(4)
+                .rounded(4)
+                .cursor_pointer()
+                .items_center()
+                .bg(t.accent + "22")
+                .border_1()
+                .border_color(t.accent + "55")
+                .hover((s) => s.bg(t.accent + "38"))
+                .tooltip(`Restaurar visualização dos cards vinculados ao Space ${activeSpace?.name || ""}`)
+                .on_click((_e, cx) => this.resetCardFilterToSpace(cx))
+                .child(svg("mods/todos/star.svg").size(9).text_color(t.accent))
+                .child(div().text_size(10.5).font_semibold().text_color(t.accent).child(`← Voltar para o Space (${activeSpace?.name || "Space"})`)),
+            ),
+        ),
+      )
+      // Dropdown Popover
+      .when(Boolean(this.cardDropdownOpen), (el) =>
+        el.child(this.renderCardDropdown(t, cx, activeSpace, linkedCards)),
+      )
       // Agents don't know about the lists yet: one click sets them up.
       .when(!this.ruleOk, (el) => el.child(h_flex().id("todo-setup").mx(8).mb(4).px(10).py(6).gap(8).items_center().rounded(8).cursor_pointer()
         .bg(t.accent + "1f").hover((s) => s.bg(t.accent + "33")).text_size(12).text_color(t.foreground)
@@ -3296,8 +4097,8 @@ export default class Todos extends View {
         .child(div().flex_none().text_size(11.5).text_color(t.accent).child("Configurar"))))
       .child(
         v_flex().id("todo-scroll").flex_1().min_h(0).overflow_y_scrollbar().px(8).pb(8)
-          // 1. If space has NO card linked: require assigning a card!
-          .when(linkedCards.length === 0, (el) =>
+          // 1. If NO card is effective: require assigning or selecting a card!
+          .when(effectiveCards.length === 0, (el) =>
             el.child(
               v_flex().id("todo-unassigned-card-prompt").size_full().items_center().justify_center().py(48).px(20).gap(12)
                 .child(
@@ -3305,32 +4106,42 @@ export default class Todos extends View {
                     .flex().items_center().justify_center()
                     .child(svg("mods/todos/tag.svg").size(20).text_color(t.ansi3))
                 )
-                .child(div().font_bold().text_size(14).text_color(t.foreground).child("Nenhum Card / Grupo vinculado"))
+                .child(div().font_bold().text_size(14).text_color(t.foreground).child("Nenhum Card / Grupo selecionado"))
                 .child(
                   div().text_size(12).text_color(t.muted).text_center().max_w(340)
-                    .child("Este Space não tem um Card ou Grupo vinculado (ex: CARD-2467). Vincule um Card para visualizar e gerenciar suas tarefas aqui.")
+                    .child("Vincule um Card ao Space ou use o gerenciador de cards para visualizar tarefas de qualquer grupo do projeto.")
                 )
                 .child(
-                  h_flex().id("btn-prompt-assign-card").h(32).px(14).rounded(7).cursor_pointer().items_center().gap(6)
-                    .bg(t.accent).hover((s) => s.opacity(0.88))
-                    .on_click((_e, _cx) => {
-                      const s = spaces().find((x) => x.active);
-                      if (s) {
-                        openOverlay({ mod: "space-card", kind: "dialog", width: 460, height: 420, props: { space: s.id, folder: s.folder } });
-                      }
-                    })
-                    .child(svg("mods/todos/star.svg").size(12).text_color("#ffffff"))
-                    .child(div().text_size(12).font_semibold().text_color("#ffffff").child("Vincular Card a este Space"))
+                  h_flex().gap(8)
+                    .child(
+                      h_flex().id("btn-prompt-assign-card").h(32).px(12).rounded(7).cursor_pointer().items_center().gap(5)
+                        .bg(t.accent).hover((s) => s.opacity(0.88))
+                        .on_click((_e, _cx) => {
+                          const s = spaces().find((x) => x.active);
+                          if (s) {
+                            openOverlay({ mod: "space-card", kind: "dialog", width: 460, height: 420, props: { space: s.id, folder: s.folder } });
+                          }
+                        })
+                        .child(svg("mods/todos/star.svg").size(12).text_color("#ffffff"))
+                        .child(div().text_size(12).font_semibold().text_color("#ffffff").child("Vincular ao Space")),
+                    )
+                    .child(
+                      h_flex().id("btn-prompt-browse-cards").h(32).px(12).rounded(7).cursor_pointer().items_center().gap(5)
+                        .bg(t.raised).border_1().border_color(t.border).hover((s) => s.bg(t.hover))
+                        .on_click((_e, cx) => this.openCardFilterModal(cx))
+                        .child(svg("mods/todos/tag.svg").size(12).text_color(t.ansi4))
+                        .child(div().text_size(12).font_semibold().text_color(t.foreground).child("Buscar outros Cards")),
+                    ),
                 )
             )
           )
-          // 2. If space HAS card(s) linked:
-          .when(linkedCards.length > 0, (el) =>
+          // 2. If card(s) are effective:
+          .when(effectiveCards.length > 0, (el) =>
             el
-              .when(linkedCards.length > 1, (groupEl) =>
+              .when(effectiveCards.length > 1, (groupEl) =>
                 groupEl.children(cardGroups.map(renderCardGroup))
               )
-              .when(linkedCards.length === 1, (singleEl) =>
+              .when(effectiveCards.length === 1, (singleEl) =>
                 singleEl.children(list.flatMap(withStarter))
               )
               .when(!list.length && !done.length, (emptyEl) =>
@@ -3341,7 +4152,7 @@ export default class Todos extends View {
                         .flex().items_center().justify_center()
                         .child(svg("mods/todos/star.svg").size(18).text_color(t.accent))
                     )
-                    .child(div().font_semibold().text_size(13).text_color(t.foreground).child(`Nenhuma tarefa para ${linkedCards.map(c => "#" + c).join(", ")}`))
+                    .child(div().font_semibold().text_size(13).text_color(t.foreground).child(`Nenhuma tarefa para ${effectiveCards.map(c => "#" + c).join(", ")}`))
                     .child(div().text_size(11.5).text_color(t.dim).child("Crie a primeira tarefa deste Card"))
                     .child(
                       h_flex().h(28).px(12).rounded(6).cursor_pointer().items_center().gap(5)
@@ -3349,13 +4160,13 @@ export default class Todos extends View {
                         .hover((s) => s.bg(t.accent + "33"))
                         .on_click((_e, cx) => this.openCreateModal(cx))
                         .child(svg("mods/workspace-chrome/plus.svg").size(11).text_color(t.accent))
-                        .child(div().text_size(11.5).font_semibold().text_color(t.accent).child(`+ Nova Tarefa em #${linkedCards[0]}`))
+                        .child(div().text_size(11.5).font_semibold().text_color(t.accent).child(`+ Nova Tarefa em #${effectiveCards[0]}`))
                     )
                 )
               )
               .when(!list.length && done.length > 0, (emptyEl) =>
                 emptyEl.child(
-                  div().px(8).py(10).text_size(12).text_color(t.dim).child(`Todas as tarefas de ${linkedCards.map(c => "#" + c).join(", ")} foram concluídas!`)
+                  div().px(8).py(10).text_size(12).text_color(t.dim).child(`Todas as tarefas de ${effectiveCards.map(c => "#" + c).join(", ")} foram concluídas!`)
                 )
               )
               .when(fromFile.items.length > 0, (fileEl) => fileEl
@@ -3394,7 +4205,8 @@ export default class Todos extends View {
           )
         )
       )
+      .when(Boolean(this.showCardFilterModal), (el) => el.child(this.renderCardFilterModal(t, cx)))
       .when(Boolean(this.showCreateModal), (el) => el.child(this.renderCreateModal(t, cx)))
-      .when(Boolean(!this.showCreateModal && this.detailTask && this.lists[this.detailTask.slug]?.items?.[this.detailTask.i]), (el) => el.child(this.renderDetailModal(t, cx)));
+      .when(Boolean(!this.showCreateModal && !this.showCardFilterModal && this.detailTask && this.lists[this.detailTask.slug]?.items?.[this.detailTask.i]), (el) => el.child(this.renderDetailModal(t, cx)));
   }
 }
