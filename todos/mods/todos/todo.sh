@@ -13,6 +13,7 @@
 #   todo clear               delete the ticked ones
 #   todo json                export project to-dos as JSON
 #   todo space [get|link|unlink|list] manage space/worktree link to Card/Group
+#   todo queue [list|add|rm|clear|cron] manage task queue and dispatch to agents
 #   todo log [on|off]        this project: agents add what you ask for (default: Options › To-do)
 #   todo sync [on|off]       this project: its TODO.md follows add/edit/rm (default: Options › To-do)
 #   todo --rule on|off       add or remove the agents' to-do rule
@@ -68,6 +69,7 @@ too. Use the `todo` command (it picks the project from the git repo you run it i
 - `todo rm <n|p.s>`: deletes a task or subtask
 - `todo json`: exports tasks and metadata as structured JSON
 - `todo space [get|link <CARD>|unlink|list]`: views or links current space/worktree to Card/Group
+- `todo queue [list|add <n>|rm <n>|clear|cron]`: manages task queue dispatched to idle agents
 - `todo all`: shows every project's list
 
 While request logging is on (`todo log` says on):
@@ -191,6 +193,14 @@ case "$cmd" in
       exec "$PY" "$ENGINE" -p "$folder" space "$@"
     else
       echo "todo space requires Python 3" >&2
+      exit 1
+    fi
+    ;;
+  queue|q)
+    if [ -n "$PY" ] && [ -f "$ENGINE" ]; then
+      exec "$PY" "$ENGINE" -p "$folder" queue "$@"
+    else
+      echo "todo queue requires Python 3" >&2
       exit 1
     fi
     ;;

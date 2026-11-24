@@ -760,6 +760,262 @@ def cmd_space(args):
         print(f"No card linked to {folder}")
         print(f"To link: {CLR_DIM}todo space link <CARD-ID>{CLR_RESET}")
 
+def get_queue_file():
+    data_home = os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share")
+    return Path(data_home) / "herdr" / "todos" / "queue.json"
+
+def load_queue():
+    p = get_queue_file()
+    if not p.is_file():
+        return {"items": []}
+    try:
+        with open(p, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            if not isinstance(data, dict):
+                return {"items": []}
+            data.setdefault("items", [])
+            return data
+    except Exception:
+        return {"items": []}
+
+def save_queue(data):
+    p = get_queue_file()
+    p.parent.mkdir(parents=True, exist_ok=True)
+    with open(p, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+
+def cmd_queue(args):
+    action = (args.action or "list").strip().lower()
+    target = args.target
+
+    if action not in ("list", "ls", "add", "push", "rm", "delete", "clear", "clean", "cron", "run", "json", "pop") and not target:
+        target = action
+        action = "add"
+
+    queue = load_queue()
+
+    if action in ("list", "ls"):
+        items = queue.get("items", [])
+        if not items:
+            print(f"{CLR_DIM}A fila de tarefas está vazia.{CLR_RESET}")
+            print(f"Para enfileirar: {CLR_CYAN}todo queue add <n>{CLR_RESET} ou {CLR_CYAN}todo queue add \"Minha tarefa\"{CLR_RESET}")
+            return
+
+        print(f"{CLR_BOLD}=== Fila de Tarefas dos Agentes ({len(items)}) ==={CLR_RESET}")
+        for i, it in enumerate(items, 1):
+            st = it.get("status", "queued")
+            if st == "queued":
+                st_badge = f"{CLR_YELLOW}[NA FILA]{CLR_RESET}"
+            elif st in ("running", "dispatched"):
+                st_badge = f"{CLR_GREEN}[DISPARADA]{CLR_RESET}"
+            elif st == "done":
+                st_badge = f"{CLR_CYAN}[CONCLUÍDA]{CLR_RESET}"
+            else:
+                st_badge = f"{CLR_DIM}[{st.upper()}]{CLR_RESET}"
+
+            prio = it.get("priority")
+            prio_str = f" {format_priority(prio)}" if prio else ""
+            repo = it.get("repo") or (it.get("folder", "").split("/")[-1] if it.get("folder") else "")
+            repo_str = f" {CLR_CYAN}({repo}){CLR_RESET}" if repo else ""
+            agent_str = f" {CLR_BOLD}@{it.get('dispatched_to')}{CLR_RESET}" if it.get("dispatched_to") else ""
+
+            print(f"{i:2d}. {st_badge}{prio_str} {it.get('text', '')}{repo_str}{agent_str}")
+            if it.get("description"):
+                lines = it["description"].strip().split("\n")
+                first = lines[0][:80]
+                print(f"     {CLR_DIM}Desc: {first}...{CLR_RESET}")
+            if it.get("subtasks"):
+                subs = it["subtasks"]
+                print(f"     {CLR_DIM}Subtarefas ({len(subs)}): {', '.join(subs[:3])}{'...' if len(subs) > 3 else ''}{CLR_RESET}")
+        return
+
+    if action == "json":
+        print(json.dumps(queue, indent=2, ensure_ascii=False))
+        return
+
+    if action in ("add", "push"):
+        if not target:
+            print("Uso: todo queue add <numero_da_task_ou_texto>", file=sys.stderr)
+            sys.exit(1)
+
+        path, folder = get_list_path(args.project)
+        p = ProjectTodoList(path)
+        item_text = target
+        item_desc = ""
+        item_subs = []
+        item_group = None
+        item_prio = None
+        item_repo = p.folder.split("/")[-1] if p.folder else "default"
+
+        try:
+            idx = int(target) - 1
+            if 0 <= idx < len(p.tasks):
+                task = p.tasks[idx]
+                item_text = task.clean_title
+                item_desc = task.description or ""
+                item_subs = [s.clean_title for s in task.subtasks if not s.done]
+                item_group = task.group
+                item_prio = task.priority
+                item_repo = getattr(task, "repo", None) or item_repo
+            else:
+                print(f"Tarefa #{target} não encontrada neste projeto.", file=sys.stderr)
+                sys.exit(1)
+        except ValueError:
+            item_text = target
+
+        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        q_item = {
+            "id": f"q-{int(datetime.now().timestamp()*1000)}",
+            "text": item_text,
+            "group": item_group,
+            "priority": item_prio,
+            "folder": p.folder or folder,
+            "repo": item_repo,
+            "description": item_desc,
+            "subtasks": item_subs,
+            "status": "queued",
+            "agent": getattr(args, "agent", None),
+            "created_at": now_str,
+            "dispatched_at": None,
+            "dispatched_to": None,
+        }
+        queue.setdefault("items", []).append(q_item)
+        save_queue(queue)
+        print(f"{CLR_GREEN}Tarefa enfileirada com sucesso!{CLR_RESET}")
+        print(f"  {CLR_BOLD}#{len(queue['items'])}:{CLR_RESET} {item_text} ({item_repo})")
+        return
+
+    if action in ("rm", "delete"):
+        if not target:
+            print("Uso: todo queue rm <indice>", file=sys.stderr)
+            sys.exit(1)
+        try:
+            q_idx = int(target) - 1
+            items = queue.get("items", [])
+            if 0 <= q_idx < len(items):
+                removed = items.pop(q_idx)
+                save_queue(queue)
+                print(f"{CLR_GREEN}Removida da fila:{CLR_RESET} {removed.get('text')}")
+                return
+            else:
+                print(f"Índice {target} não encontrado na fila.", file=sys.stderr)
+                sys.exit(1)
+        except ValueError:
+            print(f"Índice inválido: {target}", file=sys.stderr)
+            sys.exit(1)
+
+    if action in ("clear", "clean"):
+        before = len(queue.get("items", []))
+        queue["items"] = [it for it in queue.get("items", []) if it.get("status") == "queued"]
+        save_queue(queue)
+        cleared = before - len(queue["items"])
+        print(f"{CLR_GREEN}Limpeza concluída:{CLR_RESET} {cleared} tarefa(s) finalizada(s) removida(s) da fila.")
+        return
+
+    if action in ("cron", "run"):
+        items = queue.get("items", [])
+        queued_items = [it for it in items if it.get("status") == "queued"]
+        if not queued_items:
+            return
+
+        terminals_path = Path(os.path.expanduser("~/.local/state/herdr-core/default/terminals.json"))
+        if not terminals_path.is_file():
+            return
+
+        try:
+            with open(terminals_path, "r", encoding="utf-8") as fp:
+                term_data = json.load(fp)
+            terminals = term_data.get("terminals", {})
+        except Exception as e:
+            print(f"Erro lendo terminais: {e}", file=sys.stderr)
+            return
+
+        dispatched_count = 0
+        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        for item in queued_items:
+            item_folder = (item.get("folder") or "").rstrip("/")
+            candidate = None
+
+            for tid, t in terminals.items():
+                if not isinstance(t, dict):
+                    continue
+                if t.get("state") != "live":
+                    continue
+                st = t.get("status") or {}
+                if not isinstance(st, dict):
+                    continue
+                st_state = (st.get("state") or "").lower()
+                if st_state not in ("idle", "done", "waiting"):
+                    continue
+
+                t_cwd = (t.get("cwd") or "").rstrip("/")
+                t_addr = t.get("address") or f"t{tid}"
+                labels = t.get("labels") or {}
+                t_where = (labels.get("where") or "").upper()
+                t_agent = (st.get("app") or t.get("name") or "").lower()
+
+                if item.get("agent") and item["agent"] not in (t_addr, t.get("name"), t_agent):
+                    continue
+
+                item_group = (item.get("group") or "").upper()
+                if item_group and item_group in t_where:
+                    candidate = t_addr
+                    break
+                if item_folder and (t_cwd == item_folder or t_cwd.startswith(item_folder + "/")):
+                    candidate = t_addr
+                    break
+                elif not candidate:
+                    candidate = t_addr
+
+            if candidate:
+                prompt_lines = [
+                    f"Trabalhe nesta tarefa da fila do projeto:",
+                    f"**{item.get('text')}**",
+                ]
+                if item.get("description"):
+                    prompt_lines.append(f"\nEspecificações / Detalhes:\n{item['description']}")
+                if item.get("subtasks"):
+                    prompt_lines.append("\nSubtarefas:")
+                    for sub in item["subtasks"]:
+                        prompt_lines.append(f"- [ ] {sub}")
+                prompt_lines.append(f"\nAo concluir tudo, marque como finalizada executando: `todo done \"{item.get('text')}\"`")
+
+                prompt_text = "\n".join(prompt_lines)
+
+                import subprocess
+                try:
+                    res = subprocess.run(
+                        ["herdr-core", "send", "--if", "idle", candidate, prompt_text],
+                        capture_output=True,
+                        text=True,
+                        timeout=15
+                    )
+                    if res.returncode == 0:
+                        item["status"] = "dispatched"
+                        item["dispatched_at"] = now_str
+                        item["dispatched_to"] = candidate
+                        dispatched_count += 1
+                        print(f"[{now_str}] Disparada tarefa '{item['text']}' para terminal {candidate}")
+                    else:
+                        res2 = subprocess.run(
+                            ["herdr-core", "send", candidate, prompt_text],
+                            capture_output=True,
+                            text=True,
+                            timeout=15
+                        )
+                        if res2.returncode == 0:
+                            item["status"] = "dispatched"
+                            item["dispatched_at"] = now_str
+                            item["dispatched_to"] = candidate
+                            dispatched_count += 1
+                            print(f"[{now_str}] Disparada tarefa '{item['text']}' para terminal {candidate}")
+                except Exception as e:
+                    print(f"Erro disparando para {candidate}: {e}", file=sys.stderr)
+
+        if dispatched_count > 0:
+            save_queue(queue)
+
 def main():
     import argparse
     parser = argparse.ArgumentParser(description="Herdr To-do Engine")
@@ -828,6 +1084,12 @@ def main():
     p_space.add_argument("action", nargs="?", default="get", help="Action (get, link, unlink, list, all, json) or Card ID")
     p_space.add_argument("card", nargs="?", help="Card ID when action is link")
 
+    # queue
+    p_queue = subparsers.add_parser("queue")
+    p_queue.add_argument("action", nargs="?", default="list", help="Action (list, add, rm, clear, cron, json)")
+    p_queue.add_argument("target", nargs="?", help="Task number, text, or queue index")
+    p_queue.add_argument("--agent", help="Specific agent or terminal target (e.g. t15, kiro-cli)")
+
     args = parser.parse_args()
     if not args.cmd or args.cmd == "list":
         if not hasattr(args, "group"):
@@ -859,6 +1121,8 @@ def main():
         cmd_json(args)
     elif args.cmd == "space":
         cmd_space(args)
+    elif args.cmd == "queue":
+        cmd_queue(args)
 
 if __name__ == "__main__":
     main()

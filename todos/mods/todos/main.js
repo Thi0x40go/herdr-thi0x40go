@@ -653,6 +653,10 @@ export default class Todos extends View {
     this.fileStale = {}; // folder -> its list changed since TODO.md was read
     this.expanded = new Set();
     this.groupFilter = null;
+    this.queueItems = [];
+    cx.spawn(async (cx) => { await this.loadQueue(cx); });
+    cx.timer.every(10000, (cx) => this.loadQueue(cx));
+    cx.timer.every(60000, (cx) => this.runQueueCron(cx));
     this.subFor = null;
     this.subInput = InputState.new({ placeholder: "Add a subtask..." });
     this.subInput.on("submit", (_e, cx) => this.saveSub(cx));
@@ -1347,6 +1351,48 @@ export default class Todos extends View {
     this.modalEditingDesc = false;
     this.modalDeleteArmed = false;
     cx.notify();
+  }
+
+  async loadQueue(cx) {
+    try {
+      const qPath = `${DIR()}/queue.json`;
+      const raw = await readTextFile(qPath).catch(() => null);
+      if (raw) {
+        const data = JSON.parse(raw);
+        this.queueItems = Array.isArray(data.items) ? data.items : [];
+        if (cx) cx.notify();
+      }
+    } catch {}
+  }
+
+  async enqueueTask(task, cx) {
+    if (!task) return;
+    const folder = task.folder || this.lists[task.slug]?.folder || this.here;
+    await exec("todo", ["-p", folder, "queue", "add", task.text]).catch(async () => {
+      await python([`${appHome()}/mods/todos/todo_engine.py`, "-p", folder, "queue", "add", task.text]).catch(() => null);
+    });
+    await this.loadQueue(cx);
+    if (cx) cx.notify();
+  }
+
+  async dequeueTask(task, cx) {
+    if (!task) return;
+    const idx = (this.queueItems || []).findIndex((it) => it.text === task.text && it.status === "queued");
+    if (idx >= 0) {
+      await exec("todo", ["queue", "rm", String(idx + 1)]).catch(async () => {
+        await python([`${appHome()}/mods/todos/todo_engine.py`, "queue", "rm", String(idx + 1)]).catch(() => null);
+      });
+      await this.loadQueue(cx);
+      if (cx) cx.notify();
+    }
+  }
+
+  async runQueueCron(cx) {
+    await exec("todo", ["queue", "cron"]).catch(async () => {
+      await python([`${appHome()}/mods/todos/todo_engine.py`, "queue", "cron"]).catch(() => null);
+    });
+    await this.loadQueue(cx);
+    if (cx) cx.notify();
   }
 
   navModalPrev(cx) {
@@ -2566,6 +2612,25 @@ export default class Todos extends View {
                   .child(div().text_size(11.5).font_semibold().text_color(t.accent).child("Executar Agente"))
                   .child(svg("mods/workspace-chrome/chevron-right.svg").size(10).text_color(t.accent))
               ))
+              // Queue Button
+              .when(!task.done, (el) => {
+                const isQueued = (this.queueItems || []).some((it) => it.text === task.text && it.status === "queued");
+                return el.child(
+                  h_flex().id("btn-modal-queue").h(32).px(12).gap(6).rounded(6).cursor_pointer().items_center().justify_center()
+                    .bg(isQueued ? t.ansi3 + "1c" : t.raised).border_1().border_color(isQueued ? t.ansi3 + "88" : t.border)
+                    .hover((s) => s.bg(isQueued ? t.ansi3 + "33" : t.hover))
+                    .tooltip(isQueued ? "Tarefa já está na fila dos agentes. Clique para desenfileirar." : "Adicionar esta tarefa na fila de execução automática (injetada quando um agente estiver idle)")
+                    .on_click(async (_e, cx) => {
+                      if (isQueued) {
+                        await this.dequeueTask(task, cx);
+                      } else {
+                        await this.enqueueTask(task, cx);
+                      }
+                    })
+                    .child(svg("mods/todos/sync.svg").size(12).text_color(isQueued ? t.ansi3 : t.muted))
+                    .child(div().text_size(11.5).font_semibold().text_color(isQueued ? t.ansi3 : t.foreground).child(isQueued ? "Na Fila" : "Enfileirar"))
+                );
+              })
               .child(div().flex_1())
               // Mark as Done / Open
               .child(
@@ -3023,6 +3088,20 @@ export default class Todos extends View {
             )
         )
         .child(div().flex_1())
+        .when((this.queueItems?.filter((it) => it.status === "queued")?.length ?? 0) > 0, (b) => {
+          const qCount = this.queueItems.filter((it) => it.status === "queued").length;
+          return b.child(
+            h_flex().id("btn-header-queue").h(26).px(8).gap(4).rounded(6).cursor_pointer().items_center().justify_center()
+              .bg(t.ansi3 + "1c").border_1().border_color(t.ansi3 + "66")
+              .hover((s) => s.bg(t.ansi3 + "33"))
+              .tooltip(`Fila: ${qCount} tarefa(s) aguardando agente livre. Clique para processar agora.`)
+              .on_click(async (_e, cx) => {
+                await this.runQueueCron(cx);
+              })
+              .child(svg("mods/todos/sync.svg").size(11).text_color(t.ansi3))
+              .child(div().text_size(11).font_bold().text_color(t.ansi3).child(`Fila: ${qCount}`))
+          );
+        })
         .child(
           h_flex().id("btn-open-create-task").h(26).px(9).gap(5).rounded(6).cursor_pointer().items_center().justify_center()
             .bg(t.accent).hover((s) => s.opacity(0.88))
