@@ -532,6 +532,23 @@ def cmd_done(args):
     p.save()
     print(f"Done: {t.clean_title}")
 
+    # Also sync queue status if this task is queued/dispatched
+    try:
+        q_path = Path(os.path.expanduser("~/.local/share/herdr/todos/queue.json"))
+        if q_path.is_file():
+            with open(q_path, "r", encoding="utf-8") as qf:
+                qdata = json.load(qf)
+            q_dirty = False
+            for qit in qdata.get("items", []):
+                if qit.get("text") == t.clean_title and qit.get("status") in ("queued", "dispatched"):
+                    qit["status"] = "done"
+                    q_dirty = True
+            if q_dirty:
+                with open(q_path, "w", encoding="utf-8") as qf:
+                    json.dump(qdata, qf, indent=2, ensure_ascii=False)
+    except Exception:
+        pass
+
 def cmd_undo(args):
     path, folder = get_list_path(args.project)
     p = ProjectTodoList(path)
@@ -1053,6 +1070,7 @@ def cmd_queue(args):
                 continue
 
             # 3. Target is ready and in the exact current space!
+            folder_flag = f"-p \"{item.get('folder')}\" " if item.get("folder") else ""
             prompt_lines = [
                 f"Trabalhe nesta tarefa da fila do projeto:",
                 f"**{item.get('text')}**",
@@ -1063,7 +1081,7 @@ def cmd_queue(args):
                 prompt_lines.append("\nSubtarefas:")
                 for sub in item["subtasks"]:
                     prompt_lines.append(f"- [ ] {sub}")
-            prompt_lines.append(f"\nAo concluir tudo, marque como finalizada executando: `todo done \"{item.get('text')}\"`")
+            prompt_lines.append(f"\nAo concluir tudo, marque como finalizada executando: `todo {folder_flag}done \"{item.get('text')}\"`")
 
             prompt_text = "\n".join(prompt_lines)
 

@@ -78,7 +78,6 @@ While request logging is on (`todo log` says on):
 3. Link relevant URLs (e.g. `--url <ticket-or-MR-link>`) so they appear directly in Herdr.
 4. For complex tasks, break them down into subtasks (`todo sub <n> <step>`).
 5. Tick off items/subtasks (`todo done <n|p.s>`) immediately once completed and validated.
-6. When starting work or creating a worktree for a demand, check/link its Card with `todo space` or `todo space link <CARD-ID>`.
 <!-- /herdr:todo -->
 EOF
     } >> "$f"
@@ -245,7 +244,21 @@ case "$cmd" in
         ;;
     esac
     case "$n" in *[!0-9]*) m=$(grep -E '^- \[( |x)\] ' "$file" 2>/dev/null | sed 's/^- \[.\] //; s/ *<!--[^>]*-->//g' | grep -n -x -F -- "$n" | head -n 1 | cut -d: -f1)
-      [ -n "$m" ] || { echo "No item \"$n\"" >&2; exit 1; }; n=$m ;; esac
+      if [ -z "$m" ]; then
+        for other in "$dir"/*.md; do
+          [ -f "$other" ] || continue
+          other_m=$(grep -E '^- \[( |x)\] ' "$other" 2>/dev/null | sed 's/^- \[.\] //; s/ *<!--[^>]*-->//g' | grep -n -x -F -- "$n" | head -n 1 | cut -d: -f1)
+          if [ -n "$other_m" ]; then
+            other_folder=$(sed -n 's/^<!-- folder: \(.*\) -->$/\1/p' "$other" | head -n 1)
+            [ -z "$other_folder" ] && other_folder=$(sed -n 's/^folder: \(.*\)$/\1/p' "$other" | head -n 1)
+            if [ -n "$other_folder" ]; then
+              exec "$0" -p "$other_folder" done "$@"
+            fi
+          fi
+        done
+        echo "No item \"$n\"" >&2; exit 1
+      fi
+      n=$m ;; esac
     text=$(grep -E '^- \[( |x)\] ' "$file" 2>/dev/null | sed -n "${n}p" | sed 's/^- \[.\] //; s/ *<!--[^>]*-->//g')
     "$0" -p "$folder" "_done" "$n"
     [ -n "$text" ] && { [ -n "$PY" ] && "$PY" -I "$HERE/todo-cross.py" "$folder" "done" "$text" 2>/dev/null; } || true
@@ -260,7 +273,21 @@ case "$cmd" in
         ;;
     esac
     case "$n" in *[!0-9]*) m=$(grep -E '^- \[( |x)\] ' "$file" 2>/dev/null | sed 's/^- \[.\] //; s/ *<!--[^>]*-->//g' | grep -n -x -F -- "$n" | head -n 1 | cut -d: -f1)
-      [ -n "$m" ] || { echo "No item \"$n\"" >&2; exit 1; }; n=$m ;; esac
+      if [ -z "$m" ]; then
+        for other in "$dir"/*.md; do
+          [ -f "$other" ] || continue
+          other_m=$(grep -E '^- \[( |x)\] ' "$other" 2>/dev/null | sed 's/^- \[.\] //; s/ *<!--[^>]*-->//g' | grep -n -x -F -- "$n" | head -n 1 | cut -d: -f1)
+          if [ -n "$other_m" ]; then
+            other_folder=$(sed -n 's/^<!-- folder: \(.*\) -->$/\1/p' "$other" | head -n 1)
+            [ -z "$other_folder" ] && other_folder=$(sed -n 's/^folder: \(.*\)$/\1/p' "$other" | head -n 1)
+            if [ -n "$other_folder" ]; then
+              exec "$0" -p "$other_folder" undo "$@"
+            fi
+          fi
+        done
+        echo "No item \"$n\"" >&2; exit 1
+      fi
+      n=$m ;; esac
     text=$(grep -E '^- \[( |x)\] ' "$file" 2>/dev/null | sed -n "${n}p" | sed 's/^- \[.\] //; s/ *<!--[^>]*-->//g')
     "$0" -p "$folder" "_undo" "$n"
     [ -n "$text" ] && { [ -n "$PY" ] && "$PY" -I "$HERE/todo-cross.py" "$folder" "undo" "$text" 2>/dev/null; } || true

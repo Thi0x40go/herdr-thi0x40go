@@ -982,7 +982,7 @@ export default class Todos extends View {
         return m ? `${m[1].toUpperCase()}-${m[2]}` : null;
       };
       const explicit = sc.spaces?.[spaceId];
-      const linked = (explicit && explicit !== "none" ? explicit : null) || detectCard(s?.name) || (s?.folder ? sc.folders?.[s.folder] : null) || null;
+      const linked = (explicit && explicit !== "none" ? explicit : null) || detectCard(s?.name) || null;
       this.groupFilter = linked || null;
       cx.notify();
     }
@@ -1262,7 +1262,7 @@ export default class Todos extends View {
         return m ? `${m[1].toUpperCase()}-${m[2]}` : null;
       };
       const explicit = sc.spaces?.[activeSpace?.id];
-      const linkedCard = (explicit && explicit !== "none" ? explicit : null) || detectCard(activeSpace?.name) || (folder ? sc.folders?.[folder] : null) || null;
+      const linkedCard = (explicit && explicit !== "none" ? explicit : null) || detectCard(activeSpace?.name) || null;
       if (linkedCard) group = linkedCard;
     }
     const cardM = /(?:^|\s)(?:#|\[)?(CARD|EVAH|TASK|PROJ|ISSUE)[-_ ]?([0-9]+)(?:\])?/i.exec(text);
@@ -1831,7 +1831,7 @@ export default class Todos extends View {
       return m ? `${m[1].toUpperCase()}-${m[2]}` : "";
     };
     const explicit = sc.spaces?.[activeSpace?.id];
-    const linkedCard = (explicit && explicit !== "none" ? explicit : null) || detectCard(activeSpace?.name) || (this.here ? sc.folders?.[this.here] : "") || "";
+    const linkedCard = (explicit && explicit !== "none" ? explicit : null) || detectCard(activeSpace?.name) || "";
     this.createGroupInput.set_value(linkedCard);
 
     this.createTitleInput.set_value("");
@@ -2690,16 +2690,11 @@ export default class Todos extends View {
       return m ? `${m[1].toUpperCase()}-${m[2]}` : null;
     };
     const explicitSpace = sc.spaces?.[activeSpace?.id];
-    const explicitFolder = (this.here && sc.folders?.[this.here]) || (activeSpace?.folder && sc.folders?.[activeSpace.folder]) || null;
     let linkedCard = null;
     if (explicitSpace === "none") {
       linkedCard = null;
     } else if (explicitSpace) {
       linkedCard = explicitSpace;
-    } else if (explicitFolder === "none") {
-      linkedCard = null;
-    } else if (explicitFolder) {
-      linkedCard = explicitFolder;
     } else {
       linkedCard = detectCard(activeSpace?.name) || null;
     }
