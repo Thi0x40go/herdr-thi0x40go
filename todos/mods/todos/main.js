@@ -775,6 +775,7 @@ export default class Todos extends View {
       cx.notify();
     });
     this.modalSelectedCards = new Set();
+    this.deleteCardArmed = null;
   }
 
   getAllProjectCards() {
@@ -882,6 +883,67 @@ export default class Todos extends View {
   resetCardFilterToSpace(cx) {
     this.customCardFilter = null;
     this.showCardFilterModal = false;
+    cx.notify();
+  }
+
+  deleteUnusedCard(cardName, cx) {
+    const norm = normalizeCard(cardName);
+    if (!norm) return;
+
+    // 1. Remove de spaces.cards (memória e disco)
+    const sc = shared("spaces.cards") ?? { spaces: {}, folders: {} };
+    const updatedSc = {
+      spaces: { ...(sc.spaces ?? {}) },
+      folders: { ...(sc.folders ?? {}) },
+    };
+
+    const stripFromMap = (map) => {
+      for (const [key, val] of Object.entries(map)) {
+        if (!val || val === "none") continue;
+        const list = parseCards(val).filter((c) => c !== norm);
+        map[key] = list.length > 0 ? list.join(", ") : "none";
+      }
+    };
+
+    stripFromMap(updatedSc.spaces);
+    stripFromMap(updatedSc.folders);
+    setShared("spaces.cards", updatedSc);
+
+    cx.spawn(async (_cx) => {
+      try {
+        const jsonStr = JSON.stringify(updatedSc, null, 2);
+        await exec("python3", [
+          "-c",
+          "import sys, os; p = os.path.expanduser('~/.local/share/herdr/spaces-cards.json'); os.makedirs(os.path.dirname(p), exist_ok=True); open(p, 'w', encoding='utf-8').write(sys.argv[1])",
+          jsonStr,
+        ]);
+      } catch (e) {
+        console.error("Failed to persist spaces-cards.json:", e);
+      }
+    });
+
+    // 2. Remove tag do grupo de tarefas concluídas/antigas em this.lists
+    for (const [slug, l] of Object.entries(this.lists)) {
+      const hasCard = l.items?.some((it) => normalizeCard(it.group) === norm);
+      if (hasCard) {
+        this.change(slug, (items) => {
+          return items.map((it) => {
+            if (normalizeCard(it.group) === norm) {
+              return { ...it, group: null };
+            }
+            return it;
+          });
+        }, cx);
+      }
+    }
+
+    // 3. Atualiza estado da seleção e filtros
+    this.modalSelectedCards.delete(norm);
+    if (this.customCardFilter) {
+      this.customCardFilter = this.customCardFilter.filter((c) => c !== norm);
+      if (this.customCardFilter.length === 0) this.customCardFilter = null;
+    }
+    this.deleteCardArmed = null;
     cx.notify();
   }
 
@@ -2489,6 +2551,69 @@ export default class Todos extends View {
                 .border_color(t.border)
                 .child(div().size(6).rounded(3).bg(t.dim))
                 .child(div().text_size(10.5).text_color(t.dim).child("Sem Space"))
+        )
+        // Botão de exclusão para cards sem tarefas abertas (não estão em uso)
+        .when(c.open === 0, (el) =>
+          el.child(
+            this.deleteCardArmed === c.name
+              ? h_flex()
+                  .id(`btn-confirm-del-${c.name}`)
+                  .h(24)
+                  .px(6)
+                  .gap(4)
+                  .rounded(4)
+                  .items_center()
+                  .bg(t.ansi1 + "25")
+                  .border_1()
+                  .border_color(t.ansi1)
+                  .cursor_pointer()
+                  .hover((s) => s.bg(t.ansi1 + "40"))
+                  .on_click((_e, cx) => {
+                    cx.stop_propagation();
+                    this.deleteUnusedCard(c.name, cx);
+                  })
+                  .child(svg("mods/todos/trash.svg").size(11).text_color(t.ansi1))
+                  .child(div().text_size(10.5).font_bold().text_color(t.ansi1).child("Excluir?"))
+                  .child(
+                    div()
+                      .size(14)
+                      .rounded(3)
+                      .flex()
+                      .items_center()
+                      .justify_center()
+                      .cursor_pointer()
+                      .hover((s) => s.bg(t.raised))
+                      .on_click((_e2, cx2) => {
+                        cx2.stop_propagation();
+                        this.deleteCardArmed = null;
+                        cx2.notify();
+                      })
+                      .child(svg("mods/workspace-chrome/x.svg").size(9).text_color(t.dim))
+                  )
+              : div()
+                  .id(`btn-del-${c.name}`)
+                  .size(24)
+                  .rounded(5)
+                  .flex()
+                  .items_center()
+                  .justify_center()
+                  .cursor_pointer()
+                  .hover((s) => s.bg(t.ansi1 + "20"))
+                  .tooltip("Excluir card não utilizado")
+                  .on_click((_e, cx) => {
+                    cx.stop_propagation();
+                    this.deleteCardArmed = c.name;
+                    cx.notify();
+                    cx.spawn(async (cx2) => {
+                      await cx2.sleep(4000);
+                      if (this.deleteCardArmed === c.name) {
+                        this.deleteCardArmed = null;
+                        cx2.notify();
+                      }
+                    });
+                  })
+                  .child(svg("mods/todos/trash.svg").size(12).text_color(t.dim))
+          )
         );
     };
 
