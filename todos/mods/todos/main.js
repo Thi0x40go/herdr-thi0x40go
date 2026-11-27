@@ -57,15 +57,60 @@ const CROSS = () => `${appHome()}/mods/todos/todo-cross.py`;
 // The project you're in when its space is on another computer: its list, its
 // TODO.md and its agents are that computer's (findHere sets it).
 const HERE = { folder: null, machine: null };
-const mOf = (folder) => (folder && folder === HERE.folder ? HERE.machine : null);
+let TodosInstance = null;
+const mOfCache = new Map();
+const mOf = (folder) => {
+  if (!folder) return null;
+  const clean = folder.replace(/\/+$/, "");
+  if (mOfCache.has(clean)) return mOfCache.get(clean);
+
+  let res = null;
+  if (HERE.folder && HERE.folder.replace(/\/+$/, "") === clean && HERE.machine) {
+    res = HERE.machine;
+  } else {
+    const spList = typeof spaces === "function" ? spaces() : [];
+    const sp = spList?.find((s) => (s.folder ?? "").replace(/\/+$/, "") === clean && s.machine);
+    if (sp?.machine) {
+      res = sp.machine;
+    } else {
+      const lists = TodosInstance?.lists;
+      if (lists) {
+        for (const k in lists) {
+          const l = lists[k];
+          if (l?.machine && (l.folder ?? "").replace(/\/+$/, "") === clean) {
+            res = l.machine;
+            break;
+          }
+        }
+      }
+    }
+  }
+  mOfCache.set(clean, res);
+  return res;
+};
 const onM = (m) => (m ? { on: m } : {});
 // A list there is keyed "@<machine>:<slug>"; this computer's by its slug alone.
-const keyOf = (folder) => (mOf(folder) ? `@${mOf(folder)}:${slugOf(folder)}` : slugOf(folder));
-const machineOf = (key) => (key.startsWith("@") ? key.slice(1, key.indexOf(":")) : null);
+const keyOf = (folder, m = null) => {
+  if (!folder) return "";
+  if (folder.startsWith("@")) return folder;
+  const machine = m ?? mOf(folder);
+  return machine ? `@${machine}:${slugOf(folder)}` : slugOf(folder);
+};
+const machineOf = (key) => (key && key.startsWith("@") ? key.slice(1, key.indexOf(":")) : null);
 // There, the list is read and written with sh (todo.sh's folder): a write only
 // when the file still holds what was read ($3; $4 set: it was there), else 3.
 const THERE_DIR = 'd="${XDG_DATA_HOME:-$HOME/.local/share}/herdr/todos"';
 const THERE_READ = `${THERE_DIR}; cat "$d/$1.md" 2>/dev/null`;
+const REMOTE_READ_ALL = `d="\${XDG_DATA_HOME:-\$HOME/.local/share}/herdr/todos"
+[ -d "\$d" ] || exit 0
+for f in "\$d"/*.md; do
+  [ -f "\$f" ] || continue
+  name=\$(basename "\$f")
+  echo "---HERDR_TODO_FILE:\$name---"
+  cat "\$f"
+  echo ""
+  echo "---HERDR_TODO_END---"
+done`;
 const THERE_WRITE = `${THERE_DIR}; f="$d/$1.md"; mkdir -p "$d" || exit 1
 if [ -e "$f" ]; then [ "$(cat "$f")" = "$(printf %s "$3")" ] || exit 3; elif [ -n "$4" ]; then exit 3; fi
 printf %s "$2" > "$f.tmp" && mv "$f.tmp" "$f"`;
@@ -628,6 +673,7 @@ function suggest(value, projects) {
 
 export default class Todos extends View {
   init(_props, cx) {
+    TodosInstance = this;
     cx.spawn(async (cx) => { await loadFormat(); cx.notify(); });
     this.lists = {}; // slug -> { folder, items, raw }
     this.here = null;
@@ -659,8 +705,8 @@ export default class Todos extends View {
     });
     this.currentSpaceId = null;
     cx.timer.every(250, (cx) => this.findHere(cx));
-    // A list on another computer can't be watched: read again every 5s.
-    cx.timer.every(5000, (cx) => { if (HERE.machine) cx.spawn(async (cx) => this.loadThere(cx)); });
+    // Lists on remote computers: poll every 5s.
+    cx.timer.every(5000, (cx) => { cx.spawn(async (cx) => this.loadRemoteLists(cx)); });
     cx.timer.every(15000, (cx) => { this.checkRule(cx); cx.notify(); }); // "today", overdue, TODO.md re-read, the rule
     this.ruleOk = true; // agents have the to-do rule (CLAUDE.md); off: a hint offers to set it up
     this.checkRule(cx);
@@ -788,12 +834,26 @@ export default class Todos extends View {
     if (sc.spaces) {
       for (const [sId, cardVal] of Object.entries(sc.spaces)) {
         if (!cardVal || cardVal === "none") continue;
-        const sObj = spList.find((s) => s.id === sId);
+        const sObj = spList.find((s) => s.id === sId || s.id.split("/").pop() === sId || (s.machine && `${s.machine}/${sId}` === s.id));
         const sName = sObj?.name || sId;
-        const isCurrent = activeSpace?.id === sId;
+        const isCurrent = activeSpace?.id === sId || activeSpace?.id?.split("/").pop() === sId;
         const cList = parseCards(cardVal);
         for (const c of cList) {
           cardToSpace.set(c, { id: sId, name: sName, isCurrent });
+        }
+      }
+    }
+    if (sc.folders) {
+      for (const [fPath, cardVal] of Object.entries(sc.folders)) {
+        if (!cardVal || cardVal === "none") continue;
+        const sObj = spList.find((s) => (s.folder ?? "").replace(/\/+$/, "") === fPath.replace(/\/+$/, ""));
+        const sName = sObj?.name || fPath.split("/").pop();
+        const isCurrent = activeSpace && (activeSpace.folder ?? "").replace(/\/+$/, "") === fPath.replace(/\/+$/, "");
+        const cList = parseCards(cardVal);
+        for (const c of cList) {
+          if (!cardToSpace.has(c)) {
+            cardToSpace.set(c, { id: sObj?.id || fPath, name: sName, isCurrent });
+          }
         }
       }
     }
@@ -856,7 +916,8 @@ export default class Todos extends View {
       const m = /\b(CARD|EVAH|TASK|PROJ|ISSUE)[-_ ]?([0-9]+)\b/i.exec(name);
       return m ? `${m[1].toUpperCase()}-${m[2]}` : "";
     };
-    const explicit = sc.spaces?.[activeSpace?.id];
+    const rawActiveId = activeSpace?.id ? activeSpace.id.split("/").pop() : null;
+    const explicit = sc.spaces?.[activeSpace?.id] || (rawActiveId ? sc.spaces?.[rawActiveId] : null);
     const spaceLinkedCards = parseCards(explicit && explicit !== "none" ? explicit : (detectCard(activeSpace?.name) || ""));
 
     const initial = this.customCardFilter !== null ? this.customCardFilter : spaceLinkedCards;
@@ -917,15 +978,25 @@ export default class Todos extends View {
           "import sys, os; p = os.path.expanduser('~/.local/share/herdr/spaces-cards.json'); os.makedirs(os.path.dirname(p), exist_ok=True); open(p, 'w', encoding='utf-8').write(sys.argv[1])",
           jsonStr,
         ]);
+        for (const m of (typeof machines === "function" ? machines().map((x) => x.name).filter(Boolean) : [])) {
+          await exec("python3", [
+            "-c",
+            "import sys, os; p = os.path.expanduser('~/.local/share/herdr/spaces-cards.json'); os.makedirs(os.path.dirname(p), exist_ok=True); open(p, 'w', encoding='utf-8').write(sys.argv[1])",
+            jsonStr,
+          ], onM(m)).catch(() => null);
+        }
       } catch (e) {
         console.error("Failed to persist spaces-cards.json:", e);
       }
     });
 
     // 2. Remove tag do grupo de tarefas concluídas/antigas em this.lists
+    const processedFolders = new Set();
     for (const [slug, l] of Object.entries(this.lists)) {
+      if (processedFolders.has(l.folder)) continue;
       const hasCard = l.items?.some((it) => normalizeCard(it.group) === norm);
       if (hasCard) {
+        processedFolders.add(l.folder);
         this.change(slug, (items) => {
           return items.map((it) => {
             if (normalizeCard(it.group) === norm) {
@@ -1117,25 +1188,68 @@ export default class Todos extends View {
     for (const [k, l] of Object.entries(this.lists ?? {})) if (l.machine) lists[k] = l;
     this.lists = lists;
     SYNCED.clear();
-    for (const l of Object.values(lists)) if (l.opts.sync) SYNCED.add(l.folder);
+    for (const l of Object.values(lists)) if (l.opts?.sync) SYNCED.add(l.folder);
+    await this.loadRemoteLists(cx);
     cx.notify();
   }
 
-  // The list of the project you're in, when that's on another computer (the
-  // only one read from there); any other computer's is dropped.
+  async loadRemoteLists(cx) {
+    const remotes = [...new Set([
+      ...(typeof machines === "function" ? machines().map((m) => m.name).filter(Boolean) : []),
+      ...(typeof spaces === "function" ? spaces().map((s) => s.machine).filter(Boolean) : []),
+      ...(HERE.machine ? [HERE.machine] : []),
+    ])];
+    if (!remotes.length) return;
+
+    let changed = false;
+    for (const m of remotes) {
+      const res = await exec("sh", ["-c", REMOTE_READ_ALL], onM(m)).catch(() => null);
+      if (res?.code !== 0 || !res?.stdout) continue;
+      const parts = res.stdout.split("---HERDR_TODO_FILE:");
+      for (const part of parts) {
+        if (!part.trim()) continue;
+        const endHeader = part.indexOf("---");
+        if (endHeader === -1) continue;
+        const fileName = part.slice(0, endHeader).trim();
+        if (!fileName.endsWith(".md")) continue;
+        const slug = fileName.slice(0, -3);
+        const endContent = part.indexOf("---HERDR_TODO_END---", endHeader + 3);
+        const raw = (endContent !== -1 ? part.slice(endHeader + 3, endContent) : part.slice(endHeader + 3)).replace(/^\r?\n/, "");
+        const key = `@${m}:${slug}`;
+        if (this.lists[key]?.raw === raw) continue;
+        const p = parse(raw);
+        if (p?.folder) {
+          const listObj = { ...p, raw, machine: m, slug };
+          this.lists[key] = listObj;
+          if (!this.lists[slug]) {
+            this.lists[slug] = listObj;
+          }
+          if (p.opts?.sync) SYNCED.add(p.folder); else SYNCED.delete(p.folder);
+          changed = true;
+        }
+      }
+    }
+    if (changed) cx.notify();
+  }
+
+  // The list of the project you're in, when that's on another computer
   async loadThere(cx) {
     const m = HERE.machine, folder = HERE.folder, key = m && keyOf(folder);
     const raw = m ? (await exec("sh", ["-c", THERE_READ, "sh", slugOf(folder)], onM(m)).catch(() => null))?.stdout || null : null;
     if (m !== HERE.machine || folder !== HERE.folder) return; // moved on meanwhile
-    for (const k of Object.keys(this.lists)) if (this.lists[k].machine && k !== key) delete this.lists[k];
     const was = key && this.lists[key];
     if (!key || raw === (was?.raw ?? null)) return cx.notify();
     const p = raw && parse(raw);
     if (p?.folder) {
-      this.lists[key] = { ...p, raw, machine: m };
+      const listObj = { ...p, raw, machine: m, slug: slugOf(folder) };
+      this.lists[key] = listObj;
+      if (!this.lists[slugOf(folder)]) this.lists[slugOf(folder)] = listObj;
       this.fileAt[p.folder] = 0; this.fileStale[p.folder] = true;
-      if (p.opts.sync) SYNCED.add(p.folder); else SYNCED.delete(p.folder);
-    } else delete this.lists[key];
+      if (p.opts?.sync) SYNCED.add(p.folder); else SYNCED.delete(p.folder);
+    } else {
+      delete this.lists[key];
+    }
+    await this.loadRemoteLists(cx);
     cx.notify();
   }
 
@@ -1183,7 +1297,8 @@ export default class Todos extends View {
         const m = /\b(CARD|EVAH|TASK|PROJ|ISSUE)[-_ ]?([0-9]+)\b/i.exec(name);
         return m ? `${m[1].toUpperCase()}-${m[2]}` : null;
       };
-      const explicit = sc.spaces?.[spaceId];
+      const rawId = spaceId ? spaceId.split("/").pop() : null;
+      const explicit = sc.spaces?.[spaceId] || (rawId ? sc.spaces?.[rawId] : null);
       const linked = (explicit && explicit !== "none" ? explicit : null) || detectCard(s?.name) || null;
       this.groupFilter = linked || null;
       cx.notify();
@@ -1221,11 +1336,16 @@ export default class Todos extends View {
   async write(slug, folder, items, cx, skipped = this.lists[slug]?.skipped ?? [], opts = this.lists[slug]?.opts ?? defOpts()) {
     const path = `${DIR()}/${slug}.md`, old = this.lists[slug]?.raw ?? null;
     const text = serialize(folder, items, skipped, opts);
-    const m = machineOf(slug);
+    const m = machineOf(slug) || this.lists[slug]?.machine || mOf(folder);
     if (m) {
-      const r = await exec("sh", ["-c", THERE_WRITE, "sh", slugOf(folder), text, old ?? "", old != null ? "1" : ""], onM(m)).catch(() => null);
+      const realSlug = slug.startsWith("@") ? slug.slice(slug.indexOf(":") + 1) : slugOf(folder);
+      const r = await exec("sh", ["-c", THERE_WRITE, "sh", realSlug, text, old ?? "", old != null ? "1" : ""], onM(m)).catch(() => null);
       if (r?.code !== 0) return this.loadThere(cx); // changed there meanwhile: show theirs
-      this.lists[slug] = { folder, items, skipped, opts, raw: text, machine: m };
+      const key = `@${m}:${realSlug}`;
+      const listObj = { folder, items, skipped, opts, raw: text, machine: m, slug: realSlug };
+      this.lists[key] = listObj;
+      this.lists[realSlug] = listObj;
+      this.lists[slug] = listObj;
       if (opts.sync) SYNCED.add(folder); else SYNCED.delete(folder);
       return cx.notify();
     }
@@ -1243,7 +1363,7 @@ export default class Todos extends View {
   // known project's name), else the one you're in.
   projectFor(tag) {
     const want = tag.toLowerCase();
-    const known = [...Object.values(this.lists).map((l) => l.folder), ...spaces().filter((s) => !s.machine).map((s) => (s.folder ?? "").replace(/\/+$/, "")),
+    const known = [...Object.values(this.lists).map((l) => l.folder), ...(typeof spaces === "function" ? spaces().map((s) => (s.folder ?? "").replace(/\/+$/, "")) : []),
       ...Object.keys(shared("projects.names") ?? {}), ...(shared("projects.pinned") ?? []), ...(shared("projects.auto") ?? [])].filter(Boolean);
     const match = (f) => [this.name(f), f.split("/").pop()].map((x) => x.toLowerCase());
     return known.find((f) => match(f).includes(want)) ?? known.find((f) => match(f).some((x) => x.startsWith(want))) ?? null;
@@ -1417,11 +1537,56 @@ export default class Todos extends View {
 
   // Projects to offer after "#": ones with to-dos, open spaces, listed projects.
   projectChoices(t) {
-    const folders = [...new Set([...Object.values(this.lists).map((l) => l.folder), ...spaces().filter((s) => !s.machine).map((s) => (s.folder ?? "").replace(/\/+$/, "")),
-      ...(shared("projects.pinned") ?? []), ...(shared("projects.auto") ?? [])].filter((f) => f && f !== home()))];
-    const hereFirst = (f) => (f === this.here ? 0 : this.lists[keyOf(f)]?.items.some((x) => !x.done) ? 1 : 2);
-    return folders.sort((a, b) => hereFirst(a) - hereFirst(b) || this.name(a).localeCompare(this.name(b)))
-      .map((f) => ({ key: f.split("/").pop(), name: this.name(f), color: this.color(f, t) }));
+    if (this._cachedProjectChoices && this._cachedProjectChoicesTheme === t && (Date.now() - (this._cachedProjectChoicesTime || 0) < 500)) {
+      return this._cachedProjectChoices;
+    }
+    const currentSpaces = typeof spaces === "function" ? spaces() : [];
+    const pinned = shared("projects.pinned") ?? [];
+    const auto = shared("projects.auto") ?? [];
+    const names = shared("projects.names") ?? {};
+    const h = home();
+
+    const rawFolders = new Set();
+    for (const l of Object.values(this.lists)) {
+      if (l.folder && l.folder !== h) rawFolders.add(l.folder.replace(/\/+$/, ""));
+    }
+    for (const s of currentSpaces) {
+      if (s.folder && s.folder !== h) rawFolders.add(s.folder.replace(/\/+$/, ""));
+    }
+    for (const p of pinned) {
+      if (p && p !== h) rawFolders.add(p.replace(/\/+$/, ""));
+    }
+    for (const a of auto) {
+      if (a && a !== h) rawFolders.add(a.replace(/\/+$/, ""));
+    }
+
+    const cleanHere = (this.here ?? "").replace(/\/+$/, "");
+
+    // Precompute sort keys and metadata once per folder (O(N) instead of O(N log N))
+    const decorated = [];
+    for (const f of rawFolders) {
+      const key = keyOf(f);
+      const list = this.lists[key];
+      const hasOpen = list?.items ? list.items.some((x) => !x.done) : false;
+      const priority = f === cleanHere ? 0 : hasOpen ? 1 : 2;
+      const name = names[f] || f.split("/").pop();
+      const color = f === h ? t.muted : hue(f.split("/").pop());
+      decorated.push({
+        folder: f,
+        key: f.split("/").pop(),
+        name,
+        color,
+        priority,
+      });
+    }
+
+    decorated.sort((a, b) => a.priority - b.priority || a.name.localeCompare(b.name));
+
+    const result = decorated.map((d) => ({ key: d.key, name: d.name, color: d.color }));
+    this._cachedProjectChoices = result;
+    this._cachedProjectChoicesTheme = t;
+    this._cachedProjectChoicesTime = Date.now();
+    return result;
   }
 
   accept(cx) {
@@ -1562,8 +1727,24 @@ export default class Todos extends View {
       if (raw) {
         const data = JSON.parse(raw);
         this.queueItems = Array.isArray(data.items) ? data.items : [];
-        if (cx) cx.notify();
       }
+      for (const m of (typeof machines === "function" ? machines().map((x) => x.name).filter(Boolean) : [])) {
+        const r = await exec("sh", ["-c", 'cat "$HOME/.local/share/herdr/todos/queue.json" 2>/dev/null'], onM(m)).catch(() => null);
+        if (r?.code === 0 && r?.stdout) {
+          try {
+            const d = JSON.parse(r.stdout);
+            if (Array.isArray(d.items) && d.items.length) {
+              const existingIds = new Set((this.queueItems ?? []).map((x) => x.id || x.text));
+              for (const it of d.items) {
+                if (!existingIds.has(it.id || it.text)) {
+                  (this.queueItems ??= []).push(it);
+                }
+              }
+            }
+          } catch {}
+        }
+      }
+      if (cx) cx.notify();
     } catch {}
   }
 
@@ -2443,7 +2624,8 @@ export default class Todos extends View {
       const m = /\b(CARD|EVAH|TASK|PROJ|ISSUE)[-_ ]?([0-9]+)\b/i.exec(name);
       return m ? `${m[1].toUpperCase()}-${m[2]}` : "";
     };
-    const explicit = sc.spaces?.[activeSpace?.id];
+    const rawActiveId = activeSpace?.id ? activeSpace.id.split("/").pop() : null;
+    const explicit = sc.spaces?.[activeSpace?.id] || (rawActiveId ? sc.spaces?.[rawActiveId] : null);
     const spaceLinkedCards = parseCards(explicit && explicit !== "none" ? explicit : (detectCard(activeSpace?.name) || ""));
 
     const currentSpaceGroup = filteredCards.filter((c) => c.space?.isCurrent);
@@ -3398,6 +3580,7 @@ export default class Todos extends View {
   }
 
   render(cx) {
+    mOfCache.clear();
     const t = theme();
     const hereSlug = this.here && keyOf(this.here);
     // Only pinned projects (the sidebar's list), and the one you're in.
@@ -3411,20 +3594,11 @@ export default class Todos extends View {
     const all = Object.entries(this.lists).filter(([, l]) => inScope(l)).flatMap(([slug, l]) => l.items.map((x, i) => ({ ...x, slug, i, folder: l.folder })));
     const activeSpace = spaces().find((s) => s.active);
     const sc = shared("spaces.cards") ?? {};
-    const detectCard = (name) => {
-      if (!name) return null;
-      const m = /\b(CARD|EVAH|TASK|PROJ|ISSUE)[-_ ]?([0-9]+)\b/i.exec(name);
-      return m ? `${m[1].toUpperCase()}-${m[2]}` : null;
-    };
-    const explicitSpace = sc.spaces?.[activeSpace?.id];
+    const rawId = activeSpace?.id ? activeSpace.id.split("/").pop() : null;
+    const explicitSpace = sc.spaces?.[activeSpace?.id] || (rawId ? sc.spaces?.[rawId] : null);
     let linkedCards = [];
-    if (explicitSpace === "none") {
-      linkedCards = [];
-    } else if (explicitSpace) {
+    if (explicitSpace && explicitSpace !== "none") {
       linkedCards = parseCards(explicitSpace);
-    } else {
-      const fromName = detectCard(activeSpace?.name);
-      linkedCards = fromName ? [fromName] : [];
     }
 
     // Filtro efetivo: customizado pelo seletor ou padrão vinculado ao Space
