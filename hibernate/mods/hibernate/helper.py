@@ -3,6 +3,7 @@ import json
 import os
 import glob
 import sys
+import time
 import subprocess
 import shlex
 import re
@@ -277,6 +278,7 @@ def cmd_auto_revive():
 
     state = load_json(STATE_FILE)
     revived = []
+    used_kiro_sessions = set()
 
     for t in ls_data.get("terminals", []):
         addr = t.get("address")
@@ -295,8 +297,8 @@ def cmd_auto_revive():
         labels = info.get("labels") or {}
         cwd = fg.get("cwd") or info.get("cwd") or str(HOME)
 
-        # Terminal is alive but idle shell (e.g. zsh/bash)
-        if fg_name in ("zsh", "bash", "sh") and not info.get("agent"):
+        # Terminal is alive but idle shell (e.g. zsh/bash/fish/sh/nu)
+        if fg_name in ("zsh", "bash", "sh", "fish", "nu") and not info.get("agent"):
             # Check if it was previously running kiro
             if "kiro.cmd" in labels or "kiro.session" in labels:
                 sess_id = labels.get("kiro.session")
@@ -304,8 +306,13 @@ def cmd_auto_revive():
                     m = re.search(r"--resume-id\s+([^\s]+)", labels["kiro.cmd"])
                     if m:
                         sess_id = m.group(1)
-                if not sess_id:
-                    sess_id = find_kiro_session(None, cwd, None)
+                if not sess_id or sess_id in used_kiro_sessions:
+                    cand_id = find_kiro_session(None, cwd, None)
+                    if cand_id and cand_id not in used_kiro_sessions:
+                        sess_id = cand_id
+
+                if sess_id:
+                    used_kiro_sessions.add(sess_id)
 
                 agent_mode = ""
                 if "kiro.cmd" in labels:
@@ -327,26 +334,35 @@ def cmd_auto_revive():
                     if sess_id:
                         subprocess.run(["hc", "label", addr, "kiro.active=1", f"kiro.session={sess_id}", f"kiro.cwd={cwd}"], check=False)
                     revived.append({"address": addr, "agent": "kiro", "cmd": full_cmd})
+                    time.sleep(0.3)
                 except Exception:
                     pass
 
             # Check if it was previously running antigravity
-            elif labels.get("agent-sleep.agent") == "antigravity" or "antigravity" in str(labels):
-                conv_id = labels.get("agent-sleep") or labels.get("antigravity.session")
+            elif labels.get("agent-sleep.agent") == "antigravity" or "antigravity" in str(labels) or "agy.cmd" in labels or "agy.active" in labels:
+                conv_id = labels.get("agent-sleep") or labels.get("antigravity.session") or labels.get("agy.session")
+                if not conv_id and "agy.cmd" in labels:
+                    m = re.search(r"--conversation[=\s]+([^\s]+)", labels["agy.cmd"])
+                    if m:
+                        conv_id = m.group(1)
                 if not conv_id:
                     locks = glob.glob(str(HOME / ".gemini" / "antigravity-cli" / "presence" / "*.lock"))
                     if locks:
                         locks.sort(key=os.path.getmtime, reverse=True)
                         conv_id = Path(locks[0]).stem
 
-                if conv_id:
-                    full_cmd = f"cd {shlex.quote(cwd)} && agy --conversation {conv_id}"
-                    try:
-                        subprocess.run(["hc", "keys", addr, "ctrl+u"], check=False)
-                        subprocess.run(["hc", "send", "--force", addr, full_cmd], check=True)
-                        revived.append({"address": addr, "agent": "antigravity", "cmd": full_cmd})
-                    except Exception:
-                        pass
+                cmd_to_run = labels.get("agy.cmd")
+                if not cmd_to_run:
+                    cmd_to_run = f"agy --conversation {conv_id}" if conv_id else "agy"
+
+                full_cmd = f"cd {shlex.quote(cwd)} && {cmd_to_run}"
+                try:
+                    subprocess.run(["hc", "keys", addr, "ctrl+u"], check=False)
+                    subprocess.run(["hc", "send", "--force", addr, full_cmd], check=True)
+                    revived.append({"address": addr, "agent": "antigravity", "cmd": full_cmd})
+                    time.sleep(0.3)
+                except Exception:
+                    pass
 
     print(json.dumps({"ok": True, "revived": revived}))
 
